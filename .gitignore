@@ -1,0 +1,26 @@
+# Java / Maven / Gradle
+target/
+build/
+*.class
+*.jar
+!.mvn/wrapper/maven-wrapper.jar
+
+# Angular / Node
+node_modules/
+dist/
+.angular/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+
+# Env / secrets
+.env
+*.local
+
+# Gentle AI tool state (not project source)
+.atl/
