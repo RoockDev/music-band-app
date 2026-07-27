@@ -1,4 +1,8 @@
 spring:
+  main:
+    # Lets test-only @TestConfiguration classes override a bean (e.g. a fixed Clock)
+    # for deterministic time-based assertions (token TTL/expiry scenarios).
+    allow-bean-definition-overriding: true
   jpa:
     hibernate:
       ddl-auto: create-drop
