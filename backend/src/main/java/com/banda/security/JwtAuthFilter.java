@@ -8,6 +8,9 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.lang.NonNull;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -32,6 +35,8 @@ import java.util.Optional;
  * Spring Security's authorization rules produce the 401/403.
  */
 public class JwtAuthFilter extends OncePerRequestFilter {
+
+    private static final Logger log = LoggerFactory.getLogger(JwtAuthFilter.class);
 
     private final JwtService jwtService;
     private final UserAccountRepository userAccountRepository;
@@ -65,10 +70,30 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     }
 
     private Optional<Authentication> authenticate(JwtClaims claims) {
-        return userAccountRepository.findById(claims.userId())
-                .filter(user -> user.getStatus() == UserStatus.ACTIVE)
-                .filter(user -> user.getTokenVersion() == claims.tokenVersion())
-                .map(user -> new UsernamePasswordAuthenticationToken(user, null, authoritiesFor(user)));
+        Optional<UserAccount> maybeUser;
+        try {
+            maybeUser = userAccountRepository.findById(claims.userId());
+        } catch (DataAccessException e) {
+            // The DB is unavailable/timing out. This filter runs BEFORE
+            // @RestControllerAdvice in the chain, so an uncaught exception here would
+            // never reach GlobalExceptionHandler — treat the request as unauthenticated
+            // instead of letting it propagate uncaught through the filter chain.
+            log.error("Database unavailable while authenticating user {}", claims.userId(), e);
+            return Optional.empty();
+        }
+
+        if (maybeUser.isEmpty()) {
+            return Optional.empty();
+        }
+
+        UserAccount user = maybeUser.get();
+        if (user.getStatus() != UserStatus.ACTIVE) {
+            return Optional.empty();
+        }
+        if (user.getTokenVersion() != claims.tokenVersion()) {
+            return Optional.empty();
+        }
+        return Optional.of(new UsernamePasswordAuthenticationToken(user, null, authoritiesFor(user)));
     }
 
     private List<GrantedAuthority> authoritiesFor(UserAccount user) {
