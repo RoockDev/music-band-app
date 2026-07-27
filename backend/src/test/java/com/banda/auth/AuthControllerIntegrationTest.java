@@ -290,6 +290,26 @@ class AuthControllerIntegrationTest extends IntegrationTestBase {
 
             mockMvc.perform(post("/api/auth/logout").cookie(csrf, issuedJwt).header("X-XSRF-TOKEN", csrf.getValue()));
 
+            // Also exercise password-reset/complete and a failed-login attempt — the
+            // original version of this test only covered activate/login/logout.
+            String rawResetToken = "log-hygiene-reset-token";
+            String rawResetPassword = "N3wSup3rSecretPassphrase!";
+            passwordTokenRepository.saveAndFlush(new PasswordToken(user, PasswordTokenType.RESET,
+                    TokenHasher.sha256Hex(rawResetToken), FIXED_NOW.plus(Duration.ofHours(1)), FIXED_NOW));
+
+            mockMvc.perform(post("/api/auth/password-reset/complete")
+                    .cookie(csrf)
+                    .header("X-XSRF-TOKEN", csrf.getValue())
+                    .contentType("application/json")
+                    .content("{\"token\":\"" + rawResetToken + "\",\"newPassword\":\"" + rawResetPassword + "\"}"));
+
+            String wrongPassword = "TotallyWrongPassphrase!";
+            mockMvc.perform(post("/api/auth/login")
+                    .cookie(csrf)
+                    .header("X-XSRF-TOKEN", csrf.getValue())
+                    .contentType("application/json")
+                    .content("{\"email\":\"loghygiene@example.com\",\"password\":\"" + wrongPassword + "\"}"));
+
             String allLogs = appender.list.stream()
                     .map(ILoggingEvent::getFormattedMessage)
                     .collect(Collectors.joining("\n"));
@@ -297,6 +317,9 @@ class AuthControllerIntegrationTest extends IntegrationTestBase {
             assertThat(allLogs).doesNotContain(rawPassword);
             assertThat(allLogs).doesNotContain(rawActivationToken);
             assertThat(allLogs).doesNotContain(issuedJwt.getValue());
+            assertThat(allLogs).doesNotContain(rawResetToken);
+            assertThat(allLogs).doesNotContain(rawResetPassword);
+            assertThat(allLogs).doesNotContain(wrongPassword);
         } finally {
             rootLogger.detachAppender(appender);
         }
