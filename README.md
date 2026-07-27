@@ -10,7 +10,11 @@ Status: backend scaffolding done (empty skeleton + one smoke test), no feature l
 
 ## Running the backend locally
 
+`JWT_SECRET` is **required** — there is no built-in default, so the app fails fast at startup
+if it's unset. Generate a local one before running:
+
 ```
+export JWT_SECRET=$(openssl rand -base64 32)
 docker compose up postgres
 mvn -f backend/pom.xml spring-boot:run
 ```

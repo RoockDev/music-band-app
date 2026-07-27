@@ -26,8 +26,11 @@ spring:
 
 app:
   jwt:
-    # Must be overridden via env var in any real deployment. HMAC-SHA256 needs >= 256 bits.
-    secret: ${JWT_SECRET:dev-only-secret-change-me-dev-only-secret-change-me}
+    # REQUIRED, no default. This is a live HMAC signing key — a hardcoded fallback here
+    # would be a real, functional secret committed to git that anyone with repo access
+    # could use to forge an ADMIN JWT if the env var were ever unset. Spring fails fast
+    # at startup instead (see README for how to set it locally).
+    secret: ${JWT_SECRET}
     # Design decision #9: single moderate-lifetime access token, no refresh token. 8h default,
     # exact value within the 8-12h band left configurable (open product preference).
     access-token-ttl: ${JWT_ACCESS_TOKEN_TTL:PT8H}
