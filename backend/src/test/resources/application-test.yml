@@ -1,4 +1,8 @@
 spring:
+  main:
+    # Lets test-only @TestConfiguration classes override a bean (e.g. a fixed Clock)
+    # for deterministic time-based assertions (token TTL/expiry scenarios).
+    allow-bean-definition-overriding: true
   jpa:
     hibernate:
       ddl-auto: create-drop
@@ -6,3 +10,15 @@ spring:
   mail:
     host: localhost
     port: 1025
+
+app:
+  jwt:
+    secret: test-only-secret-not-for-production-test-only-secret
+    access-token-ttl: PT8H
+  auth:
+    activation-token-ttl: P1D
+    reset-token-ttl: PT1H
+  security:
+    # Integration tests run over plain HTTP via MockMvc/TestRestTemplate (no TLS), so a
+    # Secure-flagged cookie would never round-trip back to the client — disable it here.
+    cookie-secure: false

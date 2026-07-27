@@ -1,0 +1,32 @@
+package com.banda.common;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+import java.util.Map;
+
+/**
+ * Last-resort safety net for uncaught database failures (connection-pool exhaustion,
+ * outage, timeout, etc.). Without this, any {@link DataAccessException} that escapes a
+ * service method would surface as Spring's default 500 response, which can leak
+ * exception class names/messages to the client. Note this only covers exceptions thrown
+ * from controller/service code — it runs AFTER the servlet filter chain, so it does
+ * NOT catch failures inside {@code JwtAuthFilter} (see that class for its own handling).
+ */
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+    @ExceptionHandler(DataAccessException.class)
+    public ResponseEntity<Map<String, String>> handleDataAccessException(DataAccessException e) {
+        log.error("Database access failure", e);
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(Map.of("error", "Service temporarily unavailable"));
+    }
+}
