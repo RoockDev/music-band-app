@@ -11,6 +11,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 
 import java.time.Instant;
 
@@ -46,6 +47,12 @@ public class PasswordToken {
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
+
+    /** Optimistic lock: prevents a concurrent double-redemption of this single-use token
+     * from silently succeeding twice — see AuthService for how conflicts are handled. */
+    @Version
+    @Column(name = "version")
+    private Long version;
 
     protected PasswordToken() {
         // JPA
@@ -102,5 +109,9 @@ public class PasswordToken {
 
     public void markUsed(Instant now) {
         this.usedAt = now;
+    }
+
+    public Long getVersion() {
+        return version;
     }
 }

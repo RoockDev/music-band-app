@@ -10,6 +10,7 @@ import com.banda.users.UserAccountRepository;
 import com.banda.users.UserStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -66,8 +67,17 @@ public class AuthService {
         user.touch(now);
         token.markUsed(now);
 
-        userAccountRepository.save(user);
-        passwordTokenRepository.save(token);
+        try {
+            // saveAndFlush (not save): forces the @Version check to happen NOW, inside
+            // this method, so a losing concurrent redemption is caught here rather than
+            // surfacing as an opaque 500 at transaction-commit time.
+            userAccountRepository.saveAndFlush(user);
+            passwordTokenRepository.saveAndFlush(token);
+        } catch (ObjectOptimisticLockingFailureException e) {
+            // Lost a concurrent redemption race — to the loser, this must look identical
+            // to "token already used/invalid", never a 500.
+            throw new InvalidTokenException();
+        }
         log.info("Account activated for user {}", user.getEmail());
     }
 
@@ -100,8 +110,18 @@ public class AuthService {
         user.bumpTokenVersion();
         user.touch(now);
         token.markUsed(now);
-        userAccountRepository.save(user);
-        passwordTokenRepository.save(token);
+
+        try {
+            // saveAndFlush (not save): forces the @Version check to happen NOW, inside
+            // this method, so a losing concurrent redemption is caught here rather than
+            // surfacing as an opaque 500 at transaction-commit time.
+            userAccountRepository.saveAndFlush(user);
+            passwordTokenRepository.saveAndFlush(token);
+        } catch (ObjectOptimisticLockingFailureException e) {
+            // Lost a concurrent redemption race — to the loser, this must look identical
+            // to "token already used/invalid", never a 500.
+            throw new InvalidTokenException();
+        }
 
         List<PasswordToken> outstanding = passwordTokenRepository.findByUserAndUsedAtIsNull(user);
         outstanding.forEach(t -> t.markUsed(now));
@@ -111,9 +131,25 @@ public class AuthService {
     }
 
     public void logout(UserAccount user) {
-        user.bumpTokenVersion();
-        userAccountRepository.save(user);
+        bumpTokenVersionWithRetry(user);
         log.info("Logout for user {}", user.getEmail());
+    }
+
+    /**
+     * Bumping tokenVersion is commutative — either bump invalidates prior JWTs — so on a
+     * lost race (e.g. simultaneous logout + password reset) a single reload-and-retry is
+     * correct, not just best-effort. If the retry also loses the race, fail loudly rather
+     * than silently dropping the invalidation.
+     */
+    private void bumpTokenVersionWithRetry(UserAccount user) {
+        try {
+            user.bumpTokenVersion();
+            userAccountRepository.saveAndFlush(user);
+        } catch (ObjectOptimisticLockingFailureException e) {
+            UserAccount fresh = userAccountRepository.findById(user.getId()).orElseThrow(() -> e);
+            fresh.bumpTokenVersion();
+            userAccountRepository.saveAndFlush(fresh);
+        }
     }
 
     private PasswordToken requireValidToken(String rawToken, PasswordTokenType expectedType) {

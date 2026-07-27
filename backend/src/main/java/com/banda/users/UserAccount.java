@@ -8,6 +8,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 
 import java.time.Instant;
 
@@ -52,6 +53,13 @@ public class UserAccount {
 
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
+
+    /** Optimistic lock: prevents a concurrent double-redemption of a token or a lost
+     * tokenVersion bump (e.g. simultaneous logout + password reset) from silently
+     * corrupting state — see AuthService for how conflicts here are handled. */
+    @Version
+    @Column(name = "version")
+    private Long version;
 
     protected UserAccount() {
         // JPA
@@ -147,5 +155,9 @@ public class UserAccount {
 
     public void touch(Instant now) {
         this.updatedAt = now;
+    }
+
+    public Long getVersion() {
+        return version;
     }
 }
