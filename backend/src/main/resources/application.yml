@@ -37,3 +37,7 @@ app:
   auth:
     activation-token-ttl: ${ACTIVATION_TOKEN_TTL:P1D}
     reset-token-ttl: ${RESET_TOKEN_TTL:PT1H}
+  security:
+    # httpOnly+Secure+SameSite cookie flag (design decision #9). Override to false only
+    # for plain-HTTP local dev without TLS (see README) — never in a real deployment.
+    cookie-secure: ${APP_SECURITY_COOKIE_SECURE:true}

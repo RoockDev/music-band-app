@@ -116,6 +116,10 @@ class AuthControllerIntegrationTest extends IntegrationTestBase {
         Cookie accessToken = result.getResponse().getCookie(SecurityConstants.ACCESS_TOKEN_COOKIE);
         assertThat(accessToken).isNotNull();
         assertThat(accessToken.isHttpOnly()).isTrue();
+        // Proves app.security.cookie-secure is actually wired from config (not just the
+        // @Value inline default) — the test profile explicitly sets it to false because
+        // MockMvc/TestRestTemplate run over plain HTTP.
+        assertThat(accessToken.getSecure()).isFalse();
         assertThat(result.getResponse().getContentAsString()).contains("login@example.com");
     }
 

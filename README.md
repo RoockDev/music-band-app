@@ -24,6 +24,10 @@ from env vars (`SERVER_PORT`, `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, `MAIL_HOST
 `MAIL_USERNAME`, `MAIL_PASSWORD`) — see `backend/src/main/resources/application.yml` for the
 full list and local dev defaults.
 
+The JWT access-token cookie is `Secure` by default (requires HTTPS). If you're running the
+API over plain HTTP locally (no TLS reverse proxy), set `APP_SECURITY_COOKIE_SECURE=false` —
+otherwise the browser will silently drop the cookie and login will appear to do nothing.
+
 Run backend tests (uses Testcontainers, needs Docker running):
 
 ```
