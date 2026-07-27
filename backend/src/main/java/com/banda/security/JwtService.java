@@ -4,6 +4,8 @@ import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -24,6 +26,8 @@ import java.util.Optional;
  */
 @Service
 public class JwtService {
+
+    private static final Logger log = LoggerFactory.getLogger(JwtService.class);
 
     private final SecretKey key;
     private final Duration accessTokenTtl;
@@ -65,7 +69,9 @@ public class JwtService {
             return Optional.of(new JwtClaims(userId, tokenVersion, role));
         } catch (JwtException | IllegalArgumentException e) {
             // Signature invalid, malformed, expired, or unparsable subject/claims — never
-            // log the raw token here, it's a bearer credential.
+            // log the raw token here, it's a bearer credential. Only the exception's
+            // class/reason is logged (Section 12: no plaintext secret in logs).
+            log.warn("JWT validation failed: {}", e.getClass().getSimpleName());
             return Optional.empty();
         }
     }

@@ -88,9 +88,13 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
         UserAccount user = maybeUser.get();
         if (user.getStatus() != UserStatus.ACTIVE) {
+            // Log the userId, never the token (Section 12: no plaintext secret in logs).
+            log.warn("Rejected authentication for user {}: account not ACTIVE (status={})",
+                    user.getId(), user.getStatus());
             return Optional.empty();
         }
         if (user.getTokenVersion() != claims.tokenVersion()) {
+            log.warn("Rejected authentication for user {}: token version mismatch", user.getId());
             return Optional.empty();
         }
         return Optional.of(new UsernamePasswordAuthenticationToken(user, null, authoritiesFor(user)));

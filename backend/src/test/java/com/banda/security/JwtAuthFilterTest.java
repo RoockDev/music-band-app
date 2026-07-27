@@ -4,10 +4,15 @@ import com.banda.users.UserAccount;
 import com.banda.users.UserAccountRepository;
 import com.banda.users.UserRole;
 import com.banda.users.UserStatus;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.QueryTimeoutException;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -79,5 +84,74 @@ class JwtAuthFilterTest {
 
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNotNull();
         assertThat(SecurityContextHolder.getContext().getAuthentication().getPrincipal()).isEqualTo(user);
+    }
+
+    @Test
+    void tokenVersionMismatchIsRejectedAndLoggedWithUserIdNotToken() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        String rawToken = "stale-version-jwt-should-never-appear-in-logs";
+        request.setCookies(new Cookie(SecurityConstants.ACCESS_TOKEN_COOKIE, rawToken));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        FilterChain filterChain = mock(FilterChain.class);
+
+        UserAccount user = activeUser(11L);
+        when(jwtService.validateToken(rawToken)).thenReturn(Optional.of(new JwtClaims(11L, 5L, "MUSICIAN")));
+        when(userAccountRepository.findById(11L)).thenReturn(Optional.of(user));
+
+        Logger logger = (Logger) LoggerFactory.getLogger(JwtAuthFilter.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+
+        try {
+            filter.doFilter(request, response, filterChain);
+
+            assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+
+            boolean warnLogged = appender.list.stream()
+                    .anyMatch(event -> event.getLevel() == Level.WARN
+                            && event.getFormattedMessage().contains("11"));
+            assertThat(warnLogged).isTrue();
+
+            String allLogs = appender.list.stream().map(ILoggingEvent::getFormattedMessage).reduce("", (a, b) -> a + "\n" + b);
+            assertThat(allLogs).doesNotContain(rawToken);
+        } finally {
+            logger.detachAppender(appender);
+        }
+    }
+
+    @Test
+    void inactiveAccountIsRejectedAndLoggedWithUserIdNotToken() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        String rawToken = "deactivated-account-jwt-should-never-appear-in-logs";
+        request.setCookies(new Cookie(SecurityConstants.ACCESS_TOKEN_COOKIE, rawToken));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        FilterChain filterChain = mock(FilterChain.class);
+
+        UserAccount user = new UserAccount("deactivated@example.com", UserRole.MUSICIAN, UserStatus.DEACTIVATED, Instant.now());
+        ReflectionTestUtils.setField(user, "id", 13L);
+        when(jwtService.validateToken(rawToken)).thenReturn(Optional.of(new JwtClaims(13L, 0L, "MUSICIAN")));
+        when(userAccountRepository.findById(13L)).thenReturn(Optional.of(user));
+
+        Logger logger = (Logger) LoggerFactory.getLogger(JwtAuthFilter.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+
+        try {
+            filter.doFilter(request, response, filterChain);
+
+            assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+
+            boolean warnLogged = appender.list.stream()
+                    .anyMatch(event -> event.getLevel() == Level.WARN
+                            && event.getFormattedMessage().contains("13"));
+            assertThat(warnLogged).isTrue();
+
+            String allLogs = appender.list.stream().map(ILoggingEvent::getFormattedMessage).reduce("", (a, b) -> a + "\n" + b);
+            assertThat(allLogs).doesNotContain(rawToken);
+        } finally {
+            logger.detachAppender(appender);
+        }
     }
 }

@@ -1,6 +1,11 @@
 package com.banda.security;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -64,5 +69,32 @@ class JwtServiceTest {
         JwtService service = serviceAt(Instant.now());
 
         assertThat(service.validateToken("not-a-jwt-at-all")).isEmpty();
+    }
+
+    @Test
+    void validationFailureIsLoggedWithoutTheRawToken() {
+        Logger logger = (Logger) LoggerFactory.getLogger(JwtService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+
+        try {
+            JwtService service = serviceAt(Instant.now());
+            String rawMalformedToken = "not-a-jwt-at-all-and-should-never-appear-in-logs";
+
+            assertThat(service.validateToken(rawMalformedToken)).isEmpty();
+
+            boolean warnLogged = appender.list.stream()
+                    .anyMatch(event -> event.getLevel() == Level.WARN
+                            && event.getFormattedMessage().contains("JWT validation failed"));
+            assertThat(warnLogged).isTrue();
+
+            String allLogs = appender.list.stream()
+                    .map(ILoggingEvent::getFormattedMessage)
+                    .reduce("", (a, b) -> a + "\n" + b);
+            assertThat(allLogs).doesNotContain(rawMalformedToken);
+        } finally {
+            logger.detachAppender(appender);
+        }
     }
 }
