@@ -23,3 +23,14 @@ spring:
     port: ${MAIL_PORT:1025}
     username: ${MAIL_USERNAME:}
     password: ${MAIL_PASSWORD:}
+
+app:
+  jwt:
+    # Must be overridden via env var in any real deployment. HMAC-SHA256 needs >= 256 bits.
+    secret: ${JWT_SECRET:dev-only-secret-change-me-dev-only-secret-change-me}
+    # Design decision #9: single moderate-lifetime access token, no refresh token. 8h default,
+    # exact value within the 8-12h band left configurable (open product preference).
+    access-token-ttl: ${JWT_ACCESS_TOKEN_TTL:PT8H}
+  auth:
+    activation-token-ttl: ${ACTIVATION_TOKEN_TTL:P1D}
+    reset-token-ttl: ${RESET_TOKEN_TTL:PT1H}

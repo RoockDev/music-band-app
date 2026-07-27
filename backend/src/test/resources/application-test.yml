@@ -6,3 +6,11 @@ spring:
   mail:
     host: localhost
     port: 1025
+
+app:
+  jwt:
+    secret: test-only-secret-not-for-production-test-only-secret
+    access-token-ttl: PT8H
+  auth:
+    activation-token-ttl: P1D
+    reset-token-ttl: PT1H
