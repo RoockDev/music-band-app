@@ -140,6 +140,46 @@ class AuthControllerIntegrationTest extends IntegrationTestBase {
     }
 
     @Test
+    void loginWithDeactivatedAccountAndCorrectPasswordIsRejectedLikeBadCredentials() throws Exception {
+        UserAccount user = new UserAccount("deactivated@example.com", UserRole.MUSICIAN, UserStatus.DEACTIVATED, FIXED_NOW);
+        user.setPasswordHash(passwordEncoder.encode("CorrectPass1!"));
+        userAccountRepository.saveAndFlush(user);
+
+        Cookie csrf = fetchCsrfCookie();
+
+        MvcResult result = mockMvc.perform(post("/api/auth/login")
+                        .cookie(csrf)
+                        .header("X-XSRF-TOKEN", csrf.getValue())
+                        .contentType("application/json")
+                        .content("{\"email\":\"deactivated@example.com\",\"password\":\"CorrectPass1!\"}"))
+                .andExpect(status().isUnauthorized())
+                .andReturn();
+
+        assertThat(result.getResponse().getContentAsString()).doesNotContain("DEACTIVATED");
+    }
+
+    @Test
+    void loginWithPendingAccountAndCorrectPasswordIsRejectedLikeBadCredentials() throws Exception {
+        UserAccount user = new UserAccount("pending-login@example.com", UserRole.MUSICIAN, UserStatus.PENDING, FIXED_NOW);
+        // A PENDING account normally has no password hash yet, but even if one were
+        // somehow present, status alone must still block login (defense in depth).
+        user.setPasswordHash(passwordEncoder.encode("CorrectPass1!"));
+        userAccountRepository.saveAndFlush(user);
+
+        Cookie csrf = fetchCsrfCookie();
+
+        MvcResult result = mockMvc.perform(post("/api/auth/login")
+                        .cookie(csrf)
+                        .header("X-XSRF-TOKEN", csrf.getValue())
+                        .contentType("application/json")
+                        .content("{\"email\":\"pending-login@example.com\",\"password\":\"CorrectPass1!\"}"))
+                .andExpect(status().isUnauthorized())
+                .andReturn();
+
+        assertThat(result.getResponse().getContentAsString()).doesNotContain("PENDING");
+    }
+
+    @Test
     void resetUpdatesPasswordAndInvalidatesOtherOutstandingTokens() throws Exception {
         UserAccount user = new UserAccount("reset@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, FIXED_NOW);
         user.setPasswordHash(passwordEncoder.encode("OldPass1!"));
