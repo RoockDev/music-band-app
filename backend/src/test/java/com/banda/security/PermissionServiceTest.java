@@ -1,0 +1,101 @@
+package com.banda.security;
+
+import com.banda.users.UserAccount;
+import com.banda.users.UserRole;
+import com.banda.users.UserStatus;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import java.time.Instant;
+
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+/**
+ * Section 2 ("Permission gate") / Section 10 (Admin Panel Permission-Gated Actions): proves
+ * the gate check is enforced independent of the base ADMIN role — holding ADMIN alone is
+ * never sufficient, and (defensively) holding a stray permission row without the ADMIN role
+ * is likewise never sufficient. {@link AdminPermissionRepositoryTest} already proves the
+ * real JPA-level persistence/uniqueness; this class proves the gate's decision logic.
+ */
+class PermissionServiceTest {
+
+    private AdminPermissionRepository adminPermissionRepository;
+    private PermissionService permissionService;
+
+    @BeforeEach
+    void setUp() {
+        adminPermissionRepository = mock(AdminPermissionRepository.class);
+        permissionService = new PermissionService(adminPermissionRepository);
+    }
+
+    @Test
+    void requirePermissionDeniesAnAdminWhoLacksTheSpecificPermissionToggle() {
+        UserAccount admin = adminUser();
+        when(adminPermissionRepository.existsByAdminAndPermission(admin, Permission.MANAGE_SHEET_MUSIC))
+                .thenReturn(false);
+
+        assertThatThrownBy(() -> permissionService.requirePermission(admin, Permission.MANAGE_SHEET_MUSIC))
+                .isInstanceOf(PermissionDeniedException.class);
+    }
+
+    @Test
+    void requirePermissionAllowsAnAdminWhoHoldsTheSpecificPermissionToggle() {
+        UserAccount admin = adminUser();
+        when(adminPermissionRepository.existsByAdminAndPermission(admin, Permission.MANAGE_SHEET_MUSIC))
+                .thenReturn(true);
+
+        assertThatCode(() -> permissionService.requirePermission(admin, Permission.MANAGE_SHEET_MUSIC))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void requirePermissionDeniesANonAdminEvenIfAStrayPermissionRowExists() {
+        UserAccount musician =
+                new UserAccount("musician@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, Instant.now());
+        when(adminPermissionRepository.existsByAdminAndPermission(musician, Permission.MANAGE_SHEET_MUSIC))
+                .thenReturn(true);
+
+        assertThatThrownBy(() -> permissionService.requirePermission(musician, Permission.MANAGE_SHEET_MUSIC))
+                .isInstanceOf(PermissionDeniedException.class);
+    }
+
+    @Test
+    void grantAddsTheToggleOnlyOnceWhenCalledTwiceForTheSamePair() {
+        UserAccount admin = adminUser();
+        when(adminPermissionRepository.existsByAdminAndPermission(admin, Permission.MANAGE_EVENTS))
+                .thenReturn(false, true);
+
+        permissionService.grant(admin, Permission.MANAGE_EVENTS);
+        permissionService.grant(admin, Permission.MANAGE_EVENTS);
+
+        verify(adminPermissionRepository, times(1)).save(any(AdminPermission.class));
+    }
+
+    @Test
+    void grantRejectsANonAdminAccount() {
+        UserAccount musician =
+                new UserAccount("musician2@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, Instant.now());
+
+        assertThatThrownBy(() -> permissionService.grant(musician, Permission.MANAGE_USERS))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void revokeDelegatesToTheRepository() {
+        UserAccount admin = adminUser();
+
+        permissionService.revoke(admin, Permission.MANAGE_GROUPS);
+
+        verify(adminPermissionRepository).deleteByAdminAndPermission(admin, Permission.MANAGE_GROUPS);
+    }
+
+    private UserAccount adminUser() {
+        return new UserAccount("admin@example.com", UserRole.ADMIN, UserStatus.ACTIVE, Instant.now());
+    }
+}
