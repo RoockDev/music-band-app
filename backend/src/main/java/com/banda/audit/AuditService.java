@@ -37,9 +37,9 @@ public class AuditService {
         auditLogRepository.save(new AuditLog(actorId, action, entityType, entityId, details, clock.instant()));
     }
 
-    /** Full history for one resource, oldest first (Section 11: "shown chronologically"). */
+    /** Full history for one resource, newest first (Section 11: "shown chronologically"). */
     @Transactional(readOnly = true)
     public List<AuditLog> history(String entityType, Long entityId) {
-        return auditLogRepository.findByEntityTypeAndEntityIdOrderByTimestampAsc(entityType, entityId);
+        return auditLogRepository.findByEntityTypeAndEntityIdOrderByTimestampDescIdDesc(entityType, entityId);
     }
 }

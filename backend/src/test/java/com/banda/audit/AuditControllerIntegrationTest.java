@@ -16,9 +16,10 @@ import org.springframework.test.web.servlet.MvcResult;
 import java.time.Duration;
 import java.time.Instant;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -60,26 +61,50 @@ class AuditControllerIntegrationTest extends IntegrationTestBase {
     }
 
     @Test
-    void adminSeesHistoryOrderedChronologically() throws Exception {
+    void adminSeesHistoryOrderedNewestFirstWithFullJsonContract() throws Exception {
         UserAccount admin = new UserAccount("audit-admin@example.com", UserRole.ADMIN, UserStatus.ACTIVE, NOW);
         admin.setPasswordHash(passwordEncoder.encode("AdminPass1!"));
         userAccountRepository.saveAndFlush(admin);
 
-        auditLogRepository.saveAndFlush(new AuditLog(admin.getId(), "UPDATED", "SheetMusic", 55L, null,
-                NOW.plus(Duration.ofMinutes(5))));
-        auditLogRepository.saveAndFlush(new AuditLog(admin.getId(), "CREATED", "SheetMusic", 55L, null, NOW));
+        AuditLog created = auditLogRepository.saveAndFlush(
+                new AuditLog(admin.getId(), "CREATED", "SheetMusic", 55L, null, NOW));
+        AuditLog updated = auditLogRepository.saveAndFlush(
+                new AuditLog(admin.getId(), "UPDATED", "SheetMusic", 55L, "changed title",
+                        NOW.plus(Duration.ofMinutes(5))));
 
         Cookie accessToken = loginAndGetAccessTokenCookie("audit-admin@example.com", "AdminPass1!");
 
-        MvcResult result = mockMvc.perform(get("/api/audit/SheetMusic/55").cookie(accessToken))
+        mockMvc.perform(get("/api/audit/SheetMusic/55").cookie(accessToken))
                 .andExpect(status().isOk())
-                .andReturn();
+                .andExpect(jsonPath("$.length()").value(2))
+                // Newest first: UPDATED (later timestamp) before CREATED.
+                .andExpect(jsonPath("$[0].id").value(updated.getId().intValue()))
+                .andExpect(jsonPath("$[0].actorId").value(admin.getId().intValue()))
+                .andExpect(jsonPath("$[0].action").value("UPDATED"))
+                .andExpect(jsonPath("$[0].entityType").value("SheetMusic"))
+                .andExpect(jsonPath("$[0].entityId").value(55))
+                .andExpect(jsonPath("$[0].details").value("changed title"))
+                .andExpect(jsonPath("$[0].timestamp").exists())
+                .andExpect(jsonPath("$[1].id").value(created.getId().intValue()))
+                .andExpect(jsonPath("$[1].actorId").value(admin.getId().intValue()))
+                .andExpect(jsonPath("$[1].action").value("CREATED"))
+                .andExpect(jsonPath("$[1].entityType").value("SheetMusic"))
+                .andExpect(jsonPath("$[1].entityId").value(55))
+                .andExpect(jsonPath("$[1].details").value(nullValue()))
+                .andExpect(jsonPath("$[1].timestamp").exists());
+    }
 
-        String body = result.getResponse().getContentAsString();
-        int createdIndex = body.indexOf("CREATED");
-        int updatedIndex = body.indexOf("UPDATED");
-        assertThat(createdIndex).isGreaterThanOrEqualTo(0);
-        assertThat(updatedIndex).isGreaterThan(createdIndex);
+    @Test
+    void adminSeesEmptyArrayForAnEntityWithNoAuditRecords() throws Exception {
+        UserAccount admin = new UserAccount("audit-admin-empty@example.com", UserRole.ADMIN, UserStatus.ACTIVE, NOW);
+        admin.setPasswordHash(passwordEncoder.encode("AdminPass1!"));
+        userAccountRepository.saveAndFlush(admin);
+
+        Cookie accessToken = loginAndGetAccessTokenCookie("audit-admin-empty@example.com", "AdminPass1!");
+
+        mockMvc.perform(get("/api/audit/SheetMusic/999999").cookie(accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
     }
 
     @Test

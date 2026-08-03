@@ -37,7 +37,7 @@ class AuditLogRepositoryTest extends IntegrationTestBase {
     }
 
     @Test
-    void findsRecordsForAnEntityOrderedChronologically() {
+    void findsRecordsForAnEntityOrderedNewestFirst() {
         Instant t0 = Instant.parse("2026-01-01T00:00:00Z");
         AuditLog older = new AuditLog(1L, "CREATED", "SheetMusic", 99L, null, t0);
         AuditLog newer = new AuditLog(1L, "UPDATED", "SheetMusic", 99L, null, t0.plus(Duration.ofMinutes(5)));
@@ -49,10 +49,34 @@ class AuditLogRepositoryTest extends IntegrationTestBase {
         auditLogRepository.saveAndFlush(otherEntity);
         auditLogRepository.saveAndFlush(older);
 
-        List<AuditLog> history = auditLogRepository.findByEntityTypeAndEntityIdOrderByTimestampAsc("SheetMusic", 99L);
+        List<AuditLog> history =
+                auditLogRepository.findByEntityTypeAndEntityIdOrderByTimestampDescIdDesc("SheetMusic", 99L);
 
         assertThat(history).hasSize(2);
-        assertThat(history.get(0).getTimestamp()).isEqualTo(t0);
-        assertThat(history.get(1).getTimestamp()).isEqualTo(t0.plus(Duration.ofMinutes(5)));
+        assertThat(history.get(0).getTimestamp()).isEqualTo(t0.plus(Duration.ofMinutes(5)));
+        assertThat(history.get(1).getTimestamp()).isEqualTo(t0);
+    }
+
+    @Test
+    void ordersTiedTimestampsDeterministicallyByIdDescendingAcrossRepeatedQueries() {
+        // Both records share the exact same Instant (not just equal after truncation) to
+        // simulate two near-simultaneous writes that land in the same Postgres microsecond
+        // bucket, where ORDER BY timestamp alone gives no deterministic order.
+        Instant tied = Instant.parse("2026-01-01T00:00:00Z");
+        AuditLog first = new AuditLog(1L, "CREATED", "SheetMusic", 77L, null, tied);
+        AuditLog second = new AuditLog(1L, "UPDATED", "SheetMusic", 77L, null, tied);
+
+        AuditLog savedFirst = auditLogRepository.saveAndFlush(first);
+        AuditLog savedSecond = auditLogRepository.saveAndFlush(second);
+
+        List<AuditLog> firstQuery =
+                auditLogRepository.findByEntityTypeAndEntityIdOrderByTimestampDescIdDesc("SheetMusic", 77L);
+        List<AuditLog> secondQuery =
+                auditLogRepository.findByEntityTypeAndEntityIdOrderByTimestampDescIdDesc("SheetMusic", 77L);
+
+        assertThat(firstQuery).extracting(AuditLog::getId)
+                .containsExactly(savedSecond.getId(), savedFirst.getId());
+        assertThat(secondQuery).extracting(AuditLog::getId)
+                .containsExactly(savedSecond.getId(), savedFirst.getId());
     }
 }

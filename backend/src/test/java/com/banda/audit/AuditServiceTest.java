@@ -60,9 +60,9 @@ class AuditServiceTest {
     }
 
     @Test
-    void historyDelegatesToChronologicalRepositoryQuery() {
+    void historyDelegatesToTheNewestFirstRepositoryQuery() {
         AuditLog entry = new AuditLog(1L, "CREATED", "SheetMusic", 5L, null, NOW);
-        when(auditLogRepository.findByEntityTypeAndEntityIdOrderByTimestampAsc("SheetMusic", 5L))
+        when(auditLogRepository.findByEntityTypeAndEntityIdOrderByTimestampDescIdDesc("SheetMusic", 5L))
                 .thenReturn(List.of(entry));
 
         List<AuditLog> history = auditService.history("SheetMusic", 5L);
