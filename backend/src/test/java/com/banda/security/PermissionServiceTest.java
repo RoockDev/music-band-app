@@ -3,15 +3,22 @@ package com.banda.security;
 import com.banda.users.UserAccount;
 import com.banda.users.UserRole;
 import com.banda.users.UserStatus;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.QueryTimeoutException;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.AbstractPlatformTransactionManager;
 import org.springframework.transaction.support.DefaultTransactionStatus;
 
 import java.time.Instant;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -107,6 +114,77 @@ class PermissionServiceTest {
 
         assertThatCode(() -> permissionService.grant(admin, Permission.MANAGE_SHEET_MUSIC))
                 .doesNotThrowAnyException();
+    }
+
+    @Test
+    void requirePermissionDeniesADeactivatedAdminEvenWithTheRoleAndTheToggle() {
+        UserAccount deactivatedAdmin =
+                new UserAccount("deactivated-admin@example.com", UserRole.ADMIN, UserStatus.DEACTIVATED, Instant.now());
+        when(adminPermissionRepository.existsByAdminAndPermission(deactivatedAdmin, Permission.MANAGE_USERS))
+                .thenReturn(true);
+
+        assertThatThrownBy(() -> permissionService.requirePermission(deactivatedAdmin, Permission.MANAGE_USERS))
+                .isInstanceOf(PermissionDeniedException.class);
+    }
+
+    @Test
+    void requirePermissionFailsClosedAndLogsWhenTheRepositoryThrowsADataAccessException() {
+        UserAccount admin = adminUser();
+        when(adminPermissionRepository.existsByAdminAndPermission(admin, Permission.MANAGE_EVENTS))
+                .thenThrow(new QueryTimeoutException("db down"));
+
+        Logger logger = (Logger) LoggerFactory.getLogger(PermissionService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+
+        try {
+            assertThatThrownBy(() -> permissionService.requirePermission(admin, Permission.MANAGE_EVENTS))
+                    .isInstanceOf(PermissionDeniedException.class);
+
+            boolean logged = appender.list.stream()
+                    .anyMatch(event -> (event.getLevel() == Level.WARN || event.getLevel() == Level.ERROR)
+                            && event.getFormattedMessage().contains("MANAGE_EVENTS"));
+            assertThat(logged).isTrue();
+        } finally {
+            logger.detachAppender(appender);
+        }
+    }
+
+    @Test
+    void requirePermissionRejectsANullActor() {
+        assertThatThrownBy(() -> permissionService.requirePermission(null, Permission.MANAGE_USERS))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void requirePermissionRejectsANullPermission() {
+        assertThatThrownBy(() -> permissionService.requirePermission(adminUser(), null))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void grantRejectsANullAdmin() {
+        assertThatThrownBy(() -> permissionService.grant(null, Permission.MANAGE_USERS))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void grantRejectsANullPermission() {
+        assertThatThrownBy(() -> permissionService.grant(adminUser(), null))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void revokeRejectsANullAdmin() {
+        assertThatThrownBy(() -> permissionService.revoke(null, Permission.MANAGE_USERS))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void revokeRejectsANullPermission() {
+        assertThatThrownBy(() -> permissionService.revoke(adminUser(), null))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

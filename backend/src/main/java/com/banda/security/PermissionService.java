@@ -2,8 +2,10 @@ package com.banda.security;
 
 import com.banda.users.UserAccount;
 import com.banda.users.UserRole;
+import com.banda.users.UserStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -61,6 +63,7 @@ public class PermissionService {
      * nested in; only the failed insert attempt itself rolls back.
      */
     public void grant(UserAccount admin, Permission permission) {
+        requireNonNullArgs(admin, permission);
         requireAdminRole(admin);
         try {
             requiresNewTransaction.executeWithoutResult(status -> {
@@ -81,18 +84,41 @@ public class PermissionService {
      * not-currently-held permission is a no-op. */
     @Transactional
     public void revoke(UserAccount admin, Permission permission) {
+        requireNonNullArgs(admin, permission);
         adminPermissionRepository.deleteByAdminAndPermission(admin, permission);
     }
 
     /**
      * Throws {@link PermissionDeniedException} unless {@code actor} holds BOTH the base
-     * ADMIN role AND the specific {@code permission} toggle. Holding ADMIN alone is never
-     * sufficient (Sec.2 "Permission gate" scenario, Sec.10).
+     * ADMIN role AND the specific {@code permission} toggle, AND the actor's account is
+     * currently ACTIVE. Holding ADMIN alone is never sufficient (Sec.2 "Permission gate"
+     * scenario, Sec.10).
+     *
+     * <p>The ACTIVE check is defense-in-depth: today {@code JwtAuthFilter} already filters
+     * non-ACTIVE accounts per-request upstream of every controller, but this method is the
+     * reusable entry point PRs 5-9 are expected to call directly from their own service
+     * layer — it must not silently depend on always running downstream of that filter.
+     *
+     * <p>A database outage during the permission lookup fails closed (denies), matching the
+     * established posture of {@code JwtAuthFilter#authenticate} and {@code AuditService#record}.
      */
     @Transactional(readOnly = true)
     public void requirePermission(UserAccount actor, Permission permission) {
-        if (actor.getRole() != UserRole.ADMIN
-                || !adminPermissionRepository.existsByAdminAndPermission(actor, permission)) {
+        requireNonNullArgs(actor, permission);
+        if (actor.getRole() != UserRole.ADMIN || actor.getStatus() != UserStatus.ACTIVE) {
+            throw new PermissionDeniedException(permission);
+        }
+
+        boolean granted;
+        try {
+            granted = adminPermissionRepository.existsByAdminAndPermission(actor, permission);
+        } catch (DataAccessException e) {
+            log.warn("Database unavailable while checking permission {} for actor {}",
+                    permission, actor.getId(), e);
+            throw new PermissionDeniedException(permission);
+        }
+
+        if (!granted) {
             throw new PermissionDeniedException(permission);
         }
     }
@@ -100,6 +126,15 @@ public class PermissionService {
     private void requireAdminRole(UserAccount admin) {
         if (admin.getRole() != UserRole.ADMIN) {
             throw new IllegalArgumentException("Only ADMIN accounts can hold permission toggles");
+        }
+    }
+
+    private void requireNonNullArgs(UserAccount actor, Permission permission) {
+        if (actor == null) {
+            throw new IllegalArgumentException("actor/admin must not be null");
+        }
+        if (permission == null) {
+            throw new IllegalArgumentException("permission must not be null");
         }
     }
 }
