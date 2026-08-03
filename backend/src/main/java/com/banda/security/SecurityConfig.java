@@ -57,6 +57,10 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/auth/csrf").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/activate", "/api/auth/login",
                                 "/api/auth/password-reset/complete").permitAll()
+                        // Section 11: audit history is admin-panel-only. A finer-grained
+                        // per-action permission gate (Phase 3/RBAC) refines this later; for
+                        // now the base ADMIN role is the gate, same as every other endpoint.
+                        .requestMatchers("/api/audit/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .addFilterAfter(new CsrfCookieFilter(), BasicAuthenticationFilter.class)
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
