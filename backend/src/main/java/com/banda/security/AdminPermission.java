@@ -17,10 +17,11 @@ import jakarta.persistence.UniqueConstraint;
 /**
  * One granted permission toggle for one admin account — the {@code admin_permission}
  * many-to-many join row between {@link UserAccount} and {@link Permission}. An explicit
- * join entity (not an {@code @ElementCollection}) is used deliberately, consistent with
- * this codebase's other access joins (e.g. {@code sheet_group_access}): explicit,
+ * join entity (not an {@code @ElementCollection}) is used deliberately: explicit,
  * greppable, independently testable/queryable rows rather than a generic embedded
- * collection.
+ * collection — the pattern later phases (groups, sheet music) are expected to follow for
+ * their own access joins (e.g. {@code sheet_group_access}), not an existing precedent
+ * being followed here.
  *
  * <p>The unique constraint on (admin, permission) makes a duplicate grant for the same
  * pair a DB-level integrity violation, not just an application-level check — "toggle" is

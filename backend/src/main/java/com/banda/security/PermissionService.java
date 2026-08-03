@@ -80,8 +80,16 @@ public class PermissionService {
         }
     }
 
-    /** Revokes {@code permission} from {@code admin}. Idempotent: revoking a
-     * not-currently-held permission is a no-op. */
+    /**
+     * Revokes {@code permission} from {@code admin}. Idempotent: revoking a
+     * not-currently-held permission is a no-op.
+     *
+     * <p><b>No role validation:</b> unlike {@link #grant}, this method does NOT check
+     * {@code admin.getRole()}. It is a pure idempotent delete-by-match against
+     * {@code admin_permission} — calling it for a non-ADMIN account, a deactivated account,
+     * or any account that never held the toggle is silently a no-op, by design, not an
+     * accidental gap.
+     */
     @Transactional
     public void revoke(UserAccount admin, Permission permission) {
         requireNonNullArgs(admin, permission);
@@ -101,6 +109,10 @@ public class PermissionService {
      *
      * <p>A database outage during the permission lookup fails closed (denies), matching the
      * established posture of {@code JwtAuthFilter#authenticate} and {@code AuditService#record}.
+     *
+     * @throws PermissionDeniedException if {@code actor} lacks the ADMIN role, is not
+     *         ACTIVE, lacks the specific {@code permission} toggle, or the permission
+     *         lookup fails (fail-closed on a database outage)
      */
     @Transactional(readOnly = true)
     public void requirePermission(UserAccount actor, Permission permission) {
