@@ -5,6 +5,10 @@ import com.banda.users.UserRole;
 import com.banda.users.UserStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.AbstractPlatformTransactionManager;
+import org.springframework.transaction.support.DefaultTransactionStatus;
 
 import java.time.Instant;
 
@@ -31,7 +35,7 @@ class PermissionServiceTest {
     @BeforeEach
     void setUp() {
         adminPermissionRepository = mock(AdminPermissionRepository.class);
-        permissionService = new PermissionService(adminPermissionRepository);
+        permissionService = new PermissionService(adminPermissionRepository, new NoOpTransactionManager());
     }
 
     @Test
@@ -74,7 +78,10 @@ class PermissionServiceTest {
         permissionService.grant(admin, Permission.MANAGE_EVENTS);
         permissionService.grant(admin, Permission.MANAGE_EVENTS);
 
-        verify(adminPermissionRepository, times(1)).save(any(AdminPermission.class));
+        // saveAndFlush, not save: this forces the unique-constraint check to happen
+        // synchronously inside grant() so a lost race is catchable there, matching the
+        // established AuthService#activate/#resetPassword pattern.
+        verify(adminPermissionRepository, times(1)).saveAndFlush(any(AdminPermission.class));
     }
 
     @Test
@@ -84,6 +91,22 @@ class PermissionServiceTest {
 
         assertThatThrownBy(() -> permissionService.grant(musician, Permission.MANAGE_USERS))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void grantIsAnIdempotentNoOpWhenItLosesTheUniqueConstraintRaceAgainstAConcurrentGrant() {
+        UserAccount admin = adminUser();
+        // Simulates the TOCTOU race: the exists-check reads false (the concurrent winner
+        // hasn't committed yet), but by the time this call's own insert flushes, the
+        // winner already has — the DB's UNIQUE(admin_id, permission) constraint is the
+        // real source of truth and rejects the loser's insert.
+        when(adminPermissionRepository.existsByAdminAndPermission(admin, Permission.MANAGE_SHEET_MUSIC))
+                .thenReturn(false);
+        when(adminPermissionRepository.saveAndFlush(any(AdminPermission.class)))
+                .thenThrow(new DataIntegrityViolationException("duplicate key value violates unique constraint"));
+
+        assertThatCode(() -> permissionService.grant(admin, Permission.MANAGE_SHEET_MUSIC))
+                .doesNotThrowAnyException();
     }
 
     @Test
@@ -97,5 +120,34 @@ class PermissionServiceTest {
 
     private UserAccount adminUser() {
         return new UserAccount("admin@example.com", UserRole.ADMIN, UserStatus.ACTIVE, Instant.now());
+    }
+
+    /**
+     * Minimal fake transaction manager (no real resource/connection) used purely to drive
+     * {@link org.springframework.transaction.support.TransactionTemplate}'s real
+     * begin/commit/rollback control flow inside {@link PermissionService#grant}, without
+     * needing a database — mirrors {@code AuditServiceTest}'s equivalent fake.
+     */
+    private static class NoOpTransactionManager extends AbstractPlatformTransactionManager {
+
+        @Override
+        protected Object doGetTransaction() {
+            return new Object();
+        }
+
+        @Override
+        protected void doBegin(Object transaction, TransactionDefinition definition) {
+            // no-op: no real resource to begin
+        }
+
+        @Override
+        protected void doCommit(DefaultTransactionStatus status) {
+            // no-op: no real resource to commit
+        }
+
+        @Override
+        protected void doRollback(DefaultTransactionStatus status) {
+            // no-op: no real resource to roll back
+        }
     }
 }
