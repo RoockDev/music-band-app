@@ -143,6 +143,14 @@ public class Event {
         return allScope;
     }
 
+    /** Unlike group/individual scope grants ({@link EventGroupAccess}/
+     * {@link EventMusicianAccess}, deliberately set-once at creation — no re-scoping endpoint
+     * in this PR), {@code allScope} is a plain core-detail field like {@link #isPublic}, so
+     * {@link EventService#edit} may toggle it directly. */
+    public void setAllScope(boolean allScope) {
+        this.allScope = allScope;
+    }
+
     public EventStatus getStatus() {
         return status;
     }
