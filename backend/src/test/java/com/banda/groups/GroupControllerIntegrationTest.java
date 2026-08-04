@@ -26,7 +26,14 @@ import org.springframework.test.web.servlet.MvcResult;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -193,6 +200,78 @@ class GroupControllerIntegrationTest extends IntegrationTestBase {
                 .andExpect(status().isNotFound());
     }
 
+    @Test
+    void editByAnAdminLackingManageGroupsPermissionIsForbidden() throws Exception {
+        persistActiveAdmin("admin-edit-nopermission@example.com", "AdminPass1!");
+        Group target = groupRepository.saveAndFlush(new Group("Untouchable Group", null, FIXED_NOW));
+
+        Cookie csrf = fetchCsrfCookie();
+        Cookie accessToken = loginAndGetAccessTokenCookie("admin-edit-nopermission@example.com", "AdminPass1!", csrf);
+
+        mockMvc.perform(put("/api/groups/" + target.getId())
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue())
+                        .contentType("application/json")
+                        .content("{\"name\":\"Hijacked\"}"))
+                .andExpect(status().isForbidden());
+
+        assertThat(groupRepository.findById(target.getId()).orElseThrow().getName()).isEqualTo("Untouchable Group");
+    }
+
+    /**
+     * Proves {@link GroupController}'s {@code @ExceptionHandler(ConcurrentGroupModificationException.class)}
+     * actually maps to 409 over real HTTP — {@link GroupServiceTest} only proves the service
+     * throws the exception, never that the controller returns 409 for it (versus falling
+     * through to a broader handler, or leaking as 500). Two real concurrent {@code PUT}
+     * requests race the same group's {@code @Version} check, mirroring
+     * {@code com.banda.security.PermissionServiceIntegrationTest}'s real-thread pattern: one
+     * request must win (200), the other must lose the optimistic-lock race and get a real 409.
+     */
+    @Test
+    void concurrentEditsOnTheSameGroupResultInExactlyOneSuccessAndOneRealConflict() throws Exception {
+        UserAccount admin = persistActiveAdmin("admin-edit-race@example.com", "AdminPass1!");
+        adminPermissionRepository.saveAndFlush(new AdminPermission(admin, Permission.MANAGE_GROUPS));
+        Group target = groupRepository.saveAndFlush(new Group("Race Edit Group", null, FIXED_NOW));
+
+        Cookie csrf = fetchCsrfCookie();
+        Cookie accessToken = loginAndGetAccessTokenCookie("admin-edit-race@example.com", "AdminPass1!", csrf);
+
+        CyclicBarrier barrier = new CyclicBarrier(2);
+        Callable<Integer> requestA = () -> {
+            barrier.await(5, TimeUnit.SECONDS);
+            return mockMvc.perform(put("/api/groups/" + target.getId())
+                            .cookie(csrf, accessToken)
+                            .header("X-XSRF-TOKEN", csrf.getValue())
+                            .contentType("application/json")
+                            .content("{\"name\":\"Renamed By A\"}"))
+                    .andReturn().getResponse().getStatus();
+        };
+        Callable<Integer> requestB = () -> {
+            barrier.await(5, TimeUnit.SECONDS);
+            return mockMvc.perform(put("/api/groups/" + target.getId())
+                            .cookie(csrf, accessToken)
+                            .header("X-XSRF-TOKEN", csrf.getValue())
+                            .contentType("application/json")
+                            .content("{\"name\":\"Renamed By B\"}"))
+                    .andReturn().getResponse().getStatus();
+        };
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            List<Future<Integer>> futures = executor.invokeAll(List.of(requestA, requestB));
+            List<Integer> statuses = new ArrayList<>();
+            for (Future<Integer> future : futures) {
+                statuses.add(future.get(10, TimeUnit.SECONDS));
+            }
+
+            assertThat(statuses)
+                    .as("exactly one PUT must win (200) and the other must lose the real optimistic-lock race (409)")
+                    .containsExactlyInAnyOrder(200, 409);
+        } finally {
+            executor.shutdown();
+        }
+    }
+
     // ---- delete() — the core deliverable of this PR ----
 
     @Test
@@ -266,6 +345,22 @@ class GroupControllerIntegrationTest extends IntegrationTestBase {
                 .andExpect(status().isNotFound());
     }
 
+    @Test
+    void deleteByAnAdminLackingManageGroupsPermissionIsForbidden() throws Exception {
+        persistActiveAdmin("admin-delete-nopermission@example.com", "AdminPass1!");
+        Group target = groupRepository.saveAndFlush(new Group("Protected Group", null, FIXED_NOW));
+
+        Cookie csrf = fetchCsrfCookie();
+        Cookie accessToken = loginAndGetAccessTokenCookie("admin-delete-nopermission@example.com", "AdminPass1!", csrf);
+
+        mockMvc.perform(delete("/api/groups/" + target.getId())
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue()))
+                .andExpect(status().isForbidden());
+
+        assertThat(groupRepository.findById(target.getId())).isPresent();
+    }
+
     // ---- assign/unassign musicians ----
 
     @Test
@@ -284,16 +379,87 @@ class GroupControllerIntegrationTest extends IntegrationTestBase {
                         .header("X-XSRF-TOKEN", csrf.getValue()))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(get("/api/groups/" + group.getId() + "/musicians")
+        MvcResult membersResult = mockMvc.perform(get("/api/groups/" + group.getId() + "/musicians")
                         .cookie(csrf, accessToken)
                         .header("X-XSRF-TOKEN", csrf.getValue()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].email").value("musician-assign-e2e@example.com"));
+                .andExpect(jsonPath("$[0].email").value("musician-assign-e2e@example.com"))
+                .andReturn();
+
+        // Fix (CRITICAL PII leak): listMembers must return the minimal GroupMemberResponse
+        // shape (id/email/role only) — never the richer UserAccountResponse fields that sit
+        // behind Permission.MANAGE_USERS elsewhere in the codebase (status, minor,
+        // guardianContact, consentOnFile). Asserted the same way this codebase already proves
+        // other sensitive fields are absent from a response body (see
+        // AuthControllerIntegrationTest's doesNotContain assertions).
+        String membersBody = membersResult.getResponse().getContentAsString();
+        assertThat(membersBody).doesNotContain("\"guardianContact\"");
+        assertThat(membersBody).doesNotContain("\"consentOnFile\"");
+        assertThat(membersBody).doesNotContain("\"status\"");
+        assertThat(membersBody).doesNotContain("\"minor\"");
 
         List<AuditLog> history = auditLogRepository.findByEntityTypeAndEntityIdOrderByTimestampDescIdDesc(
                 "Group", group.getId());
         assertThat(history).hasSize(1);
         assertThat(history.get(0).getAction()).isEqualTo("MUSICIAN_ASSIGNED_TO_GROUP");
+    }
+
+    @Test
+    void assigningAnAdminAccountIdReturnsNotFoundJustLikeANonexistentMusicianId() throws Exception {
+        UserAccount admin = persistActiveAdmin("admin-assign-notmusician@example.com", "AdminPass1!");
+        adminPermissionRepository.saveAndFlush(new AdminPermission(admin, Permission.MANAGE_GROUPS));
+        Group group = groupRepository.saveAndFlush(new Group("Choir 4", null, FIXED_NOW));
+        UserAccount otherAdmin = userAccountRepository.saveAndFlush(
+                new UserAccount("other-admin-target@example.com", UserRole.ADMIN, UserStatus.ACTIVE, FIXED_NOW));
+
+        Cookie csrf = fetchCsrfCookie();
+        Cookie accessToken = loginAndGetAccessTokenCookie("admin-assign-notmusician@example.com", "AdminPass1!", csrf);
+
+        mockMvc.perform(post("/api/groups/" + group.getId() + "/musicians/" + otherAdmin.getId())
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue()))
+                .andExpect(status().isNotFound());
+
+        assertThat(musicianGroupRepository.existsByMusicianAndGroup(otherAdmin, group)).isFalse();
+    }
+
+    @Test
+    void assignByAnAdminLackingManageGroupsPermissionIsForbidden() throws Exception {
+        persistActiveAdmin("admin-assign-nopermission@example.com", "AdminPass1!");
+        Group group = groupRepository.saveAndFlush(new Group("Guarded Choir", null, FIXED_NOW));
+        UserAccount musician = userAccountRepository.saveAndFlush(
+                new UserAccount("musician-guarded@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, FIXED_NOW));
+
+        Cookie csrf = fetchCsrfCookie();
+        Cookie accessToken = loginAndGetAccessTokenCookie("admin-assign-nopermission@example.com", "AdminPass1!", csrf);
+
+        mockMvc.perform(post("/api/groups/" + group.getId() + "/musicians/" + musician.getId())
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue()))
+                .andExpect(status().isForbidden());
+
+        assertThat(musicianGroupRepository.existsByMusicianAndGroup(musician, group)).isFalse();
+    }
+
+    @Test
+    void unassignByAnAdminLackingManageGroupsPermissionIsForbidden() throws Exception {
+        UserAccount permittedAdmin = persistActiveAdmin("admin-unassign-setup@example.com", "AdminPass1!");
+        adminPermissionRepository.saveAndFlush(new AdminPermission(permittedAdmin, Permission.MANAGE_GROUPS));
+        persistActiveAdmin("admin-unassign-nopermission@example.com", "AdminPass1!");
+        Group group = groupRepository.saveAndFlush(new Group("Locked Choir", null, FIXED_NOW));
+        UserAccount musician = userAccountRepository.saveAndFlush(
+                new UserAccount("musician-locked@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, FIXED_NOW));
+        musicianGroupRepository.saveAndFlush(new MusicianGroup(musician, group));
+
+        Cookie csrf = fetchCsrfCookie();
+        Cookie accessToken = loginAndGetAccessTokenCookie("admin-unassign-nopermission@example.com", "AdminPass1!", csrf);
+
+        mockMvc.perform(delete("/api/groups/" + group.getId() + "/musicians/" + musician.getId())
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue()))
+                .andExpect(status().isForbidden());
+
+        assertThat(musicianGroupRepository.existsByMusicianAndGroup(musician, group)).isTrue();
     }
 
     @Test

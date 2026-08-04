@@ -229,9 +229,13 @@ class GroupServiceTest {
         // The up-front check passes (no members yet)...
         when(musicianGroupRepository.existsByGroup(existing)).thenReturn(false);
         // ...but a concurrent assignMusician() call committed between that check and the
-        // actual delete, so the FK constraint on musician_group.group_id rejects it.
+        // actual delete. In real Hibernate the DELETE statement (and thus the FK violation)
+        // fires on flush(), not on delete() itself — delete() just marks the entity for
+        // removal in the persistence context — so the stub belongs on flush() to accurately
+        // model where the real exception originates (see also
+        // GroupServiceDeleteRaceIntegrationTest for the real-Postgres proof).
         doThrow(new DataIntegrityViolationException("update or delete on table \"band_group\" violates foreign key constraint"))
-                .when(groupRepository).delete(existing);
+                .when(groupRepository).flush();
 
         assertThatThrownBy(() -> groupService.delete(actor, 9L))
                 .isInstanceOf(GroupInUseException.class);
@@ -332,6 +336,21 @@ class GroupServiceTest {
     }
 
     @Test
+    void assigningAnAdminAccountIdIsRejectedTheSameWayAsANonexistentId() {
+        UserAccount actor = adminActor();
+        Group group = new Group("Choir", null, NOW);
+        UserAccount notAMusician = adminActor();
+        org.springframework.test.util.ReflectionTestUtils.setField(notAMusician, "id", 25L);
+        when(groupRepository.findById(14L)).thenReturn(Optional.of(group));
+        when(userAccountRepository.findById(25L)).thenReturn(Optional.of(notAMusician));
+
+        assertThatThrownBy(() -> groupService.assignMusician(actor, 14L, 25L))
+                .isInstanceOf(MusicianNotFoundException.class);
+
+        verifyNoInteractions(musicianGroupRepository);
+    }
+
+    @Test
     void assignIsIdempotentWhenAlreadyAssignedAndWritesNoDuplicateAuditRecord() {
         UserAccount actor = adminActor();
         Group group = new Group("Choir", null, NOW);
@@ -422,6 +441,21 @@ class GroupServiceTest {
 
         assertThatThrownBy(() -> groupService.unassignMusician(actor, 18L, 999L))
                 .isInstanceOf(MusicianNotFoundException.class);
+    }
+
+    @Test
+    void unassigningAnAdminAccountIdIsRejectedTheSameWayAsANonexistentId() {
+        UserAccount actor = adminActor();
+        Group group = new Group("Choir", null, NOW);
+        UserAccount notAMusician = adminActor();
+        org.springframework.test.util.ReflectionTestUtils.setField(notAMusician, "id", 26L);
+        when(groupRepository.findById(18L)).thenReturn(Optional.of(group));
+        when(userAccountRepository.findById(26L)).thenReturn(Optional.of(notAMusician));
+
+        assertThatThrownBy(() -> groupService.unassignMusician(actor, 18L, 26L))
+                .isInstanceOf(MusicianNotFoundException.class);
+
+        verify(musicianGroupRepository, never()).deleteByMusicianAndGroup(any(), any());
     }
 
     // ---- listMembers() ----
