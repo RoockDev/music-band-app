@@ -41,3 +41,8 @@ app:
     # httpOnly+Secure+SameSite cookie flag (design decision #9). Override to false only
     # for plain-HTTP local dev without TLS (see README) — never in a real deployment.
     cookie-secure: ${APP_SECURITY_COOKIE_SECURE:true}
+  file-storage:
+    # Design decision #3: local disk on a persistent volume (decision #4), deliberately
+    # outside src/main/resources/static or any other classpath location Spring Boot
+    # auto-serves — never static-served, per Section 5's explicit requirement.
+    base-dir: ${APP_FILE_STORAGE_BASE_DIR:/data/files}

@@ -22,3 +22,7 @@ app:
     # Integration tests run over plain HTTP via MockMvc/TestRestTemplate (no TLS), so a
     # Secure-flagged cookie would never round-trip back to the client — disable it here.
     cookie-secure: false
+  file-storage:
+    # A disposable, JVM-tmp-relative directory — never the real /data/files default,
+    # which likely doesn't exist/isn't writable in CI/sandboxed test environments.
+    base-dir: ${java.io.tmpdir}/banda-test-files
