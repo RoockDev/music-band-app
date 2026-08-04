@@ -28,6 +28,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -50,6 +51,9 @@ class UserControllerIntegrationTest extends IntegrationTestBase {
 
     @Autowired
     private AdminPermissionRepository adminPermissionRepository;
+
+    @Autowired
+    private PasswordTokenRepository passwordTokenRepository;
 
     @Autowired
     private AuditLogRepository auditLogRepository;
@@ -249,6 +253,288 @@ class UserControllerIntegrationTest extends IntegrationTestBase {
                         .cookie(csrf, accessToken)
                         .header("X-XSRF-TOKEN", csrf.getValue()))
                 .andExpect(status().isForbidden());
+    }
+
+    // ---- ADMIN role WITHOUT the MANAGE_USERS permission toggle: real end-to-end denial ----
+    // (previously only proven for create(); edit/deactivate/get/list only had mock-level proof)
+
+    @Test
+    void editByAnAdminLackingManageUsersPermissionIsForbidden() throws Exception {
+        persistActiveAdmin("admin-edit-noperm@example.com", "AdminPass1!");
+        UserAccount target = userAccountRepository.saveAndFlush(
+                new UserAccount("edit-target-noperm@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, FIXED_NOW));
+
+        Cookie csrf = fetchCsrfCookie();
+        Cookie accessToken = loginAndGetAccessTokenCookie("admin-edit-noperm@example.com", "AdminPass1!", csrf);
+
+        mockMvc.perform(put("/api/users/" + target.getId())
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue())
+                        .contentType("application/json")
+                        .content("{\"email\":\"wont-happen@example.com\",\"role\":\"MUSICIAN\","
+                                + "\"minor\":false,\"consentOnFile\":false}"))
+                .andExpect(status().isForbidden());
+
+        assertThat(userAccountRepository.findById(target.getId()).orElseThrow().getEmail())
+                .isEqualTo("edit-target-noperm@example.com");
+    }
+
+    @Test
+    void deactivateByAnAdminLackingManageUsersPermissionIsForbidden() throws Exception {
+        persistActiveAdmin("admin-deactivate-noperm@example.com", "AdminPass1!");
+        UserAccount target = userAccountRepository.saveAndFlush(
+                new UserAccount("deactivate-target-noperm@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, FIXED_NOW));
+
+        Cookie csrf = fetchCsrfCookie();
+        Cookie accessToken = loginAndGetAccessTokenCookie("admin-deactivate-noperm@example.com", "AdminPass1!", csrf);
+
+        mockMvc.perform(post("/api/users/" + target.getId() + "/deactivate")
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue()))
+                .andExpect(status().isForbidden());
+
+        assertThat(userAccountRepository.findById(target.getId()).orElseThrow().getStatus())
+                .isEqualTo(UserStatus.ACTIVE);
+    }
+
+    @Test
+    void getByAnAdminLackingManageUsersPermissionIsForbidden() throws Exception {
+        persistActiveAdmin("admin-get-noperm@example.com", "AdminPass1!");
+        UserAccount target = userAccountRepository.saveAndFlush(
+                new UserAccount("get-target-noperm@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, FIXED_NOW));
+
+        Cookie csrf = fetchCsrfCookie();
+        Cookie accessToken = loginAndGetAccessTokenCookie("admin-get-noperm@example.com", "AdminPass1!", csrf);
+
+        mockMvc.perform(get("/api/users/" + target.getId())
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue()))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void listByAnAdminLackingManageUsersPermissionIsForbidden() throws Exception {
+        persistActiveAdmin("admin-list-noperm@example.com", "AdminPass1!");
+
+        Cookie csrf = fetchCsrfCookie();
+        Cookie accessToken = loginAndGetAccessTokenCookie("admin-list-noperm@example.com", "AdminPass1!", csrf);
+
+        mockMvc.perform(get("/api/users")
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue()))
+                .andExpect(status().isForbidden());
+    }
+
+    // ---- GET /api/users and GET /api/users/{id}: real HTTP + real serialization ----
+
+    @Test
+    void listReturnsAllUsersWithRealSerializationForAnAdminHoldingManageUsersPermission() throws Exception {
+        UserAccount admin = persistActiveAdmin("admin-list-ok@example.com", "AdminPass1!");
+        adminPermissionRepository.saveAndFlush(new AdminPermission(admin, Permission.MANAGE_USERS));
+        UserAccount other = userAccountRepository.saveAndFlush(
+                new UserAccount("listed-musician@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, FIXED_NOW));
+
+        Cookie csrf = fetchCsrfCookie();
+        Cookie accessToken = loginAndGetAccessTokenCookie("admin-list-ok@example.com", "AdminPass1!", csrf);
+
+        mockMvc.perform(get("/api/users")
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.id == " + other.getId() + ")].email").value("listed-musician@example.com"))
+                .andExpect(jsonPath("$[?(@.id == " + admin.getId() + ")].email").value("admin-list-ok@example.com"));
+    }
+
+    @Test
+    void listOnATableClearedOfAllOtherUsersReturnsOnlyTheCallingAdmin() throws Exception {
+        // IntegrationTestBase's shared, never-torn-down Testcontainers Postgres means a truly
+        // empty result set is unreachable through this admin-panel surface — the querying
+        // actor's own account always exists (it must, to authenticate). This is the closest
+        // achievable proxy for the empty-list case: clear every other row first, then prove
+        // the endpoint reflects that (size 1, only the caller) rather than leaking anything
+        // stale — the same real-HTTP/real-serialization path a truly empty result would use.
+        passwordTokenRepository.deleteAll();
+        adminPermissionRepository.deleteAll();
+        userAccountRepository.deleteAll();
+        UserAccount admin = persistActiveAdmin("admin-list-empty@example.com", "AdminPass1!");
+        adminPermissionRepository.saveAndFlush(new AdminPermission(admin, Permission.MANAGE_USERS));
+
+        Cookie csrf = fetchCsrfCookie();
+        Cookie accessToken = loginAndGetAccessTokenCookie("admin-list-empty@example.com", "AdminPass1!", csrf);
+
+        mockMvc.perform(get("/api/users")
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].email").value("admin-list-empty@example.com"));
+    }
+
+    @Test
+    void getByIdReturnsTheAccountWithRealSerializationForAnAdminHoldingManageUsersPermission() throws Exception {
+        UserAccount admin = persistActiveAdmin("admin-get-ok@example.com", "AdminPass1!");
+        adminPermissionRepository.saveAndFlush(new AdminPermission(admin, Permission.MANAGE_USERS));
+        UserAccount target = userAccountRepository.saveAndFlush(
+                new UserAccount("get-target-ok@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, FIXED_NOW));
+
+        Cookie csrf = fetchCsrfCookie();
+        Cookie accessToken = loginAndGetAccessTokenCookie("admin-get-ok@example.com", "AdminPass1!", csrf);
+
+        mockMvc.perform(get("/api/users/" + target.getId())
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(target.getId()))
+                .andExpect(jsonPath("$.email").value("get-target-ok@example.com"))
+                .andExpect(jsonPath("$.role").value("MUSICIAN"));
+    }
+
+    @Test
+    void getByIdOnANonexistentIdReturnsNotFound() throws Exception {
+        UserAccount admin = persistActiveAdmin("admin-get-404@example.com", "AdminPass1!");
+        adminPermissionRepository.saveAndFlush(new AdminPermission(admin, Permission.MANAGE_USERS));
+
+        Cookie csrf = fetchCsrfCookie();
+        Cookie accessToken = loginAndGetAccessTokenCookie("admin-get-404@example.com", "AdminPass1!", csrf);
+
+        mockMvc.perform(get("/api/users/999999")
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue()))
+                .andExpect(status().isNotFound());
+    }
+
+    // ---- Privilege-escalation hardening: MANAGE_ADMIN_ROLES gate + self-target block ----
+
+    @Test
+    void createOfAnAdminRoleByAnAdminLackingManageAdminRolesPermissionIsForbidden() throws Exception {
+        UserAccount admin = persistActiveAdmin("admin-create-noadminrole@example.com", "AdminPass1!");
+        adminPermissionRepository.saveAndFlush(new AdminPermission(admin, Permission.MANAGE_USERS));
+
+        Cookie csrf = fetchCsrfCookie();
+        Cookie accessToken = loginAndGetAccessTokenCookie("admin-create-noadminrole@example.com", "AdminPass1!", csrf);
+
+        mockMvc.perform(post("/api/users")
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue())
+                        .contentType("application/json")
+                        .content("{\"email\":\"blocked-admin@example.com\",\"role\":\"ADMIN\","
+                                + "\"minor\":false,\"consentOnFile\":false}"))
+                .andExpect(status().isForbidden());
+
+        assertThat(userAccountRepository.findByEmail("blocked-admin@example.com")).isEmpty();
+    }
+
+    @Test
+    void editPromotingToAdminByAnAdminLackingManageAdminRolesPermissionIsForbidden() throws Exception {
+        UserAccount admin = persistActiveAdmin("admin-edit-noadminrole@example.com", "AdminPass1!");
+        adminPermissionRepository.saveAndFlush(new AdminPermission(admin, Permission.MANAGE_USERS));
+        UserAccount target = userAccountRepository.saveAndFlush(
+                new UserAccount("promote-target@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, FIXED_NOW));
+
+        Cookie csrf = fetchCsrfCookie();
+        Cookie accessToken = loginAndGetAccessTokenCookie("admin-edit-noadminrole@example.com", "AdminPass1!", csrf);
+
+        mockMvc.perform(put("/api/users/" + target.getId())
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue())
+                        .contentType("application/json")
+                        .content("{\"email\":\"promote-target@example.com\",\"role\":\"ADMIN\","
+                                + "\"minor\":false,\"consentOnFile\":false}"))
+                .andExpect(status().isForbidden());
+
+        assertThat(userAccountRepository.findById(target.getId()).orElseThrow().getRole()).isEqualTo(UserRole.MUSICIAN);
+    }
+
+    @Test
+    void editPromotingToAdminByAnAdminHoldingBothPermissionsSucceeds() throws Exception {
+        UserAccount admin = persistActiveAdmin("admin-edit-withadminrole@example.com", "AdminPass1!");
+        adminPermissionRepository.saveAndFlush(new AdminPermission(admin, Permission.MANAGE_USERS));
+        adminPermissionRepository.saveAndFlush(new AdminPermission(admin, Permission.MANAGE_ADMIN_ROLES));
+        UserAccount target = userAccountRepository.saveAndFlush(
+                new UserAccount("promote-target-ok@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, FIXED_NOW));
+
+        Cookie csrf = fetchCsrfCookie();
+        Cookie accessToken = loginAndGetAccessTokenCookie("admin-edit-withadminrole@example.com", "AdminPass1!", csrf);
+
+        mockMvc.perform(put("/api/users/" + target.getId())
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue())
+                        .contentType("application/json")
+                        .content("{\"email\":\"promote-target-ok@example.com\",\"role\":\"ADMIN\","
+                                + "\"minor\":false,\"consentOnFile\":false}"))
+                .andExpect(status().isOk());
+
+        assertThat(userAccountRepository.findById(target.getId()).orElseThrow().getRole()).isEqualTo(UserRole.ADMIN);
+    }
+
+    @Test
+    void selfEditIsForbiddenEvenForAnAdminHoldingEveryPermission() throws Exception {
+        UserAccount admin = persistActiveAdmin("admin-self-edit@example.com", "AdminPass1!");
+        for (Permission permission : Permission.values()) {
+            adminPermissionRepository.saveAndFlush(new AdminPermission(admin, permission));
+        }
+
+        Cookie csrf = fetchCsrfCookie();
+        Cookie accessToken = loginAndGetAccessTokenCookie("admin-self-edit@example.com", "AdminPass1!", csrf);
+
+        mockMvc.perform(put("/api/users/" + admin.getId())
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue())
+                        .contentType("application/json")
+                        .content("{\"email\":\"self-changed@example.com\",\"role\":\"ADMIN\","
+                                + "\"minor\":false,\"consentOnFile\":false}"))
+                .andExpect(status().isForbidden());
+
+        assertThat(userAccountRepository.findById(admin.getId()).orElseThrow().getEmail())
+                .isEqualTo("admin-self-edit@example.com");
+    }
+
+    @Test
+    void selfDeactivateIsForbiddenEvenForAnAdminHoldingEveryPermission() throws Exception {
+        UserAccount admin = persistActiveAdmin("admin-self-deactivate@example.com", "AdminPass1!");
+        for (Permission permission : Permission.values()) {
+            adminPermissionRepository.saveAndFlush(new AdminPermission(admin, permission));
+        }
+
+        Cookie csrf = fetchCsrfCookie();
+        Cookie accessToken = loginAndGetAccessTokenCookie("admin-self-deactivate@example.com", "AdminPass1!", csrf);
+
+        mockMvc.perform(post("/api/users/" + admin.getId() + "/deactivate")
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue()))
+                .andExpect(status().isForbidden());
+
+        assertThat(userAccountRepository.findById(admin.getId()).orElseThrow().getStatus()).isEqualTo(UserStatus.ACTIVE);
+    }
+
+    @Test
+    void doubleDeactivateIsIdempotentAndWritesOnlyOneAuditRecord() throws Exception {
+        UserAccount admin = persistActiveAdmin("admin-double-deactivate@example.com", "AdminPass1!");
+        adminPermissionRepository.saveAndFlush(new AdminPermission(admin, Permission.MANAGE_USERS));
+        UserAccount target = userAccountRepository.saveAndFlush(
+                new UserAccount("double-deactivate-target@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, FIXED_NOW));
+
+        Cookie csrf = fetchCsrfCookie();
+        Cookie accessToken = loginAndGetAccessTokenCookie("admin-double-deactivate@example.com", "AdminPass1!", csrf);
+
+        mockMvc.perform(post("/api/users/" + target.getId() + "/deactivate")
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue()))
+                .andExpect(status().isOk());
+        long tokenVersionAfterFirstCall = userAccountRepository.findById(target.getId()).orElseThrow().getTokenVersion();
+
+        mockMvc.perform(post("/api/users/" + target.getId() + "/deactivate")
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue()))
+                .andExpect(status().isOk());
+
+        UserAccount reloaded = userAccountRepository.findById(target.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(UserStatus.DEACTIVATED);
+        assertThat(reloaded.getTokenVersion()).isEqualTo(tokenVersionAfterFirstCall);
+
+        List<AuditLog> history = auditLogRepository.findByEntityTypeAndEntityIdOrderByTimestampDescIdDesc(
+                "UserAccount", target.getId());
+        assertThat(history).hasSize(1);
     }
 
     @TestConfiguration
