@@ -11,6 +11,16 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+/**
+ * Uses {@code token-pending@example.com}/{@code token-reset@example.com} (not the shorter
+ * {@code pending@example.com}/{@code reset@example.com}) specifically to avoid colliding with
+ * {@code AuthControllerIntegrationTest}'s identical literal emails: every integration test
+ * class shares one real, never-truncated Postgres instance for the whole JVM run (see
+ * {@link IntegrationTestBase}'s own "singleton container" note), so two different test
+ * classes hardcoding the same email is a real {@code UNIQUE(email)} collision risk whenever
+ * Surefire's test-class execution order happens to interleave them — surfaced here only after
+ * adding the new {@code com.banda.events.*} integration test classes shifted that order.
+ */
 class PasswordTokenRepositoryTest extends IntegrationTestBase {
 
     @Autowired
@@ -23,7 +33,7 @@ class PasswordTokenRepositoryTest extends IntegrationTestBase {
     void persistsATokenLinkedToItsUser() {
         Instant now = Instant.now();
         UserAccount user = userAccountRepository.saveAndFlush(
-                new UserAccount("pending@example.com", UserRole.MUSICIAN, UserStatus.PENDING, now));
+                new UserAccount("token-pending@example.com", UserRole.MUSICIAN, UserStatus.PENDING, now));
 
         PasswordToken token = new PasswordToken(user, PasswordTokenType.ACTIVATION, "hashed-value",
                 now.plus(Duration.ofHours(24)), now);
@@ -40,7 +50,7 @@ class PasswordTokenRepositoryTest extends IntegrationTestBase {
     void markingATokenUsedPersistsAcrossReload() {
         Instant now = Instant.now();
         UserAccount user = userAccountRepository.saveAndFlush(
-                new UserAccount("reset@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, now));
+                new UserAccount("token-reset@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, now));
         PasswordToken token = passwordTokenRepository.saveAndFlush(
                 new PasswordToken(user, PasswordTokenType.RESET, "reset-hash", now.plus(Duration.ofHours(1)), now));
 
