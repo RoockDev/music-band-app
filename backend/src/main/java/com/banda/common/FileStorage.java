@@ -18,4 +18,14 @@ public interface FileStorage {
 
     /** Returns the full bytes previously stored under {@code storageKey}. */
     byte[] retrieve(String storageKey) throws IOException;
+
+    /**
+     * Deletes the file previously stored under {@code storageKey}. Callers that stored a
+     * file and then failed a later step in the same use case (e.g. a mutation that rolls
+     * back the database transaction after the file was already written) MUST call this to
+     * avoid leaking an orphaned file on disk — the transaction rollback alone never undoes
+     * this side effect, since {@link #store} is not itself transactional. A no-op if
+     * {@code storageKey} does not resolve to an existing file (nothing to clean up).
+     */
+    void delete(String storageKey) throws IOException;
 }

@@ -110,13 +110,35 @@ public class SheetMusicService {
                 originalFilename, contentType, Boolean.TRUE.equals(request.allScope()), now);
         SheetMusic saved = sheetMusicRepository.saveAndFlush(sheetMusic);
 
-        applyAccessScope(saved, request.groupIds(), request.musicianIds());
+        try {
+            applyAccessScope(saved, request.groupIds(), request.musicianIds());
+        } catch (RuntimeException e) {
+            // applyAccessScope can throw (e.g. GroupNotFoundException/MusicianNotFoundException
+            // on an admin typo), which rolls back the DB transaction -- but fileStorage.store
+            // above already wrote real bytes to disk, outside that transaction's control.
+            // Without this cleanup, a failed upload would silently leak an orphaned file that
+            // nothing ever references again (no update/delete endpoint exists to find it).
+            cleanupOrphanedFile(storageKey);
+            throw e;
+        }
 
         auditService.record(actor.getId(), "SHEET_MUSIC_UPLOADED", "SheetMusic", saved.getId(),
                 "title=" + request.title());
         log.info("Sheet music uploaded: {}", saved.getId());
 
         return saved;
+    }
+
+    private void cleanupOrphanedFile(String storageKey) {
+        try {
+            fileStorage.delete(storageKey);
+        } catch (IOException cleanupFailure) {
+            // Best-effort: the original failure (surfaced to the caller right after this)
+            // must never be masked by a cleanup failure. Logged at WARN, not ERROR, since a
+            // leaked file here is a disk-hygiene concern, not a correctness one -- the DB
+            // transaction still rolled back cleanly.
+            log.warn("Failed to clean up orphaned file {} after a failed upload", storageKey, cleanupFailure);
+        }
     }
 
     /**

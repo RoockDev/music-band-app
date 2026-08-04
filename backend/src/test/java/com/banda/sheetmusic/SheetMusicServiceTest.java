@@ -221,6 +221,47 @@ class SheetMusicServiceTest {
                 .isInstanceOf(GroupNotFoundException.class);
     }
 
+    /** Resilience fix: {@code fileStorage.store} runs BEFORE {@code applyAccessScope}, outside
+     * the DB transaction's control -- a failed access-scope application (e.g. an admin typo in
+     * a group id) must not leak the already-written file on disk. */
+    @Test
+    void uploadOnAFailedGroupAccessScopeCleansUpTheAlreadyStoredFile() throws IOException {
+        UserAccount actor = adminActor();
+        when(groupRepository.findById(999L)).thenReturn(Optional.empty());
+        UploadSheetMusicRequest request = new UploadSheetMusicRequest("Title", null, 1L, false, List.of(999L), null);
+
+        assertThatThrownBy(() -> sheetMusicService.upload(actor, request, "f.pdf", "application/pdf", fakeFileContent()))
+                .isInstanceOf(GroupNotFoundException.class);
+
+        verify(fileStorage).delete("generated-storage-key");
+    }
+
+    /** Same cleanup contract for the individual-musician-scope failure path. */
+    @Test
+    void uploadOnAFailedMusicianAccessScopeCleansUpTheAlreadyStoredFile() throws IOException {
+        UserAccount actor = adminActor();
+        when(userAccountRepository.findById(999L)).thenReturn(Optional.empty());
+        UploadSheetMusicRequest request = new UploadSheetMusicRequest("Title", null, 1L, false, null, List.of(999L));
+
+        assertThatThrownBy(() -> sheetMusicService.upload(actor, request, "f.pdf", "application/pdf", fakeFileContent()))
+                .isInstanceOf(MusicianNotFoundException.class);
+
+        verify(fileStorage).delete("generated-storage-key");
+    }
+
+    /** A cleanup failure (e.g. the delete itself throws) must never mask the original
+     * GroupNotFoundException the caller actually needs to see. */
+    @Test
+    void uploadOnAFailedAccessScopeStillThrowsTheOriginalExceptionEvenIfCleanupItselfFails() throws IOException {
+        UserAccount actor = adminActor();
+        when(groupRepository.findById(999L)).thenReturn(Optional.empty());
+        doThrow(new IOException("disk error during cleanup")).when(fileStorage).delete("generated-storage-key");
+        UploadSheetMusicRequest request = new UploadSheetMusicRequest("Title", null, 1L, false, List.of(999L), null);
+
+        assertThatThrownBy(() -> sheetMusicService.upload(actor, request, "f.pdf", "application/pdf", fakeFileContent()))
+                .isInstanceOf(GroupNotFoundException.class);
+    }
+
     @Test
     void uploadAppliesIndividualAccessScopeForEveryMusicianIdProvided() {
         UserAccount actor = adminActor();

@@ -76,4 +76,26 @@ class LocalFileStorageTest {
 
         assertThat(Files.isDirectory(nestedDir)).isTrue();
     }
+
+    /** Resilience fix: {@code delete} lets a caller clean up a file it just wrote if a later
+     * step in the same use case fails (e.g. {@code SheetMusicService#upload}'s access-scope
+     * application), so a rolled-back DB transaction never leaves an orphaned file behind. */
+    @Test
+    void deleteRemovesAPreviouslyStoredFileSoItCanNoLongerBeRetrieved() throws IOException {
+        LocalFileStorage storage = new LocalFileStorage(tempDir.toString());
+        String storageKey = storage.store(new ByteArrayInputStream("bytes to delete".getBytes(StandardCharsets.UTF_8)));
+
+        storage.delete(storageKey);
+
+        assertThatThrownBy(() -> storage.retrieve(storageKey)).isInstanceOf(NoSuchFileException.class);
+    }
+
+    /** A no-op, not an error, per the interface's own contract -- deleting an already-gone
+     * (or never-existed) key must not throw. */
+    @Test
+    void deletingAnUnknownStorageKeyIsANoOp() throws IOException {
+        LocalFileStorage storage = new LocalFileStorage(tempDir.toString());
+
+        storage.delete("does-not-exist");
+    }
 }

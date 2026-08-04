@@ -2,6 +2,7 @@ package com.banda.sheetmusic;
 
 import com.banda.audit.AuditLog;
 import com.banda.audit.AuditLogRepository;
+import com.banda.common.FileStorage;
 import com.banda.security.AdminPermission;
 import com.banda.security.AdminPermissionRepository;
 import com.banda.security.Permission;
@@ -21,9 +22,12 @@ import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -69,6 +73,9 @@ class SheetMusicControllerIntegrationTest extends IntegrationTestBase {
 
     @Autowired
     private PasswordEncoder passwordEncoder;
+
+    @Autowired
+    private FileStorage fileStorage;
 
     private Cookie fetchCsrfCookie() throws Exception {
         MvcResult result = mockMvc.perform(get("/api/auth/csrf")).andReturn();
@@ -172,6 +179,42 @@ class SheetMusicControllerIntegrationTest extends IntegrationTestBase {
                 .andExpect(status().isBadRequest());
 
         assertThat(sheetMusicRepository.findAll().stream().anyMatch(sm -> sm.getTitle().equals("Rejected Upload"))).isFalse();
+    }
+
+    /** Resilience fix: {@code fileStorage.store} runs before the group/musician access-scope
+     * is applied, outside the DB transaction's control -- a failed access-scope application
+     * (bad group id here) must not leave the already-written file orphaned on disk. */
+    @Test
+    void aFailedGroupAccessScopeApplicationDoesNotLeaveAnOrphanedFileOnDisk() throws Exception {
+        UserAccount admin = persistActiveAdmin("admin-upload-orphan@example.com", "AdminPass1!");
+        adminPermissionRepository.saveAndFlush(new AdminPermission(admin, Permission.MANAGE_SHEET_MUSIC));
+        Collection collection = collectionRepository.saveAndFlush(new Collection("Orphan Guard", null, FIXED_NOW));
+
+        Cookie csrf = fetchCsrfCookie();
+        Cookie accessToken = loginAndGetAccessTokenCookie("admin-upload-orphan@example.com", "AdminPass1!", csrf);
+        MockMultipartFile file = new MockMultipartFile("file", "f.pdf", "application/pdf", "bytes".getBytes());
+
+        Path baseDir = (Path) ReflectionTestUtils.getField(fileStorage, "baseDir");
+        long filesBefore = countFilesInBaseDir(baseDir);
+
+        mockMvc.perform(multipart("/api/sheet-music")
+                        .file(file)
+                        .param("title", "Orphan Guard Attempt")
+                        .param("collectionId", collection.getId().toString())
+                        .param("allScope", "false")
+                        .param("groupIds", "999999")
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue()))
+                .andExpect(status().isNotFound());
+
+        assertThat(sheetMusicRepository.findAll().stream().anyMatch(sm -> sm.getTitle().equals("Orphan Guard Attempt"))).isFalse();
+        assertThat(countFilesInBaseDir(baseDir)).isEqualTo(filesBefore);
+    }
+
+    private static long countFilesInBaseDir(Path baseDir) throws Exception {
+        try (var paths = Files.list(baseDir)) {
+            return paths.count();
+        }
     }
 
     @Test

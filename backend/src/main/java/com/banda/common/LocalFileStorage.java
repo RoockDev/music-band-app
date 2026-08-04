@@ -48,6 +48,11 @@ public class LocalFileStorage implements FileStorage {
         return Files.readAllBytes(resolveWithinBaseDir(storageKey));
     }
 
+    @Override
+    public void delete(String storageKey) throws IOException {
+        Files.deleteIfExists(resolveWithinBaseDir(storageKey));
+    }
+
     /** Rejects any resolved path that escapes {@link #baseDir} — see class Javadoc. */
     private Path resolveWithinBaseDir(String storageKey) {
         Path resolved = baseDir.resolve(storageKey).normalize();
