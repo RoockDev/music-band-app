@@ -72,6 +72,14 @@ public class SheetMusicController {
      * old/edge-case row that predates the allow-list: a malformed stored value degrades to a
      * generic {@link MediaType#APPLICATION_OCTET_STREAM} download rather than a 500, since no
      * update/delete endpoint exists yet to ever repair such a row in place.
+     *
+     * <p>{@code filename} comes from the caller-supplied {@code originalFilename} at upload
+     * time (never sanitized there, only stored verbatim for display purposes — see
+     * {@code SheetMusicService#upload}'s own Javadoc) and is escaped here, right before it's
+     * concatenated into the {@code Content-Disposition} header value, to prevent header
+     * injection: an embedded quote could otherwise prematurely close the
+     * {@code filename="..."} parameter, and an embedded CR/LF could inject an extra header
+     * entirely.
      */
     @GetMapping("/{id}/file")
     public ResponseEntity<byte[]> downloadFile(@AuthenticationPrincipal UserAccount actor, @PathVariable Long id) {
@@ -80,7 +88,7 @@ public class SheetMusicController {
         String filename = result.filename() != null ? result.filename() : "sheet-music-" + id;
         return ResponseEntity.ok()
                 .contentType(mediaType)
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + sanitizeForContentDisposition(filename) + "\"")
                 .body(result.content());
     }
 
@@ -93,6 +101,12 @@ public class SheetMusicController {
         } catch (InvalidMediaTypeException e) {
             return MediaType.APPLICATION_OCTET_STREAM;
         }
+    }
+
+    /** Strips CR/LF (header-injection vector) and escapes any remaining {@code "} so it can't
+     * prematurely close the {@code filename="..."} quoted parameter it's embedded in. */
+    private String sanitizeForContentDisposition(String filename) {
+        return filename.replace("\r", "").replace("\n", "").replace("\"", "\\\"");
     }
 
     @ExceptionHandler(InvalidFileTypeException.class)

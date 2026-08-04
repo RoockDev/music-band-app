@@ -245,6 +245,34 @@ class SheetMusicDownloadControllerIntegrationTest extends IntegrationTestBase {
                         .string("Content-Type", "application/octet-stream"));
     }
 
+    /** Risk fix: {@code originalFilename} is stored verbatim at upload time and concatenated
+     * into the {@code Content-Disposition} header on download with no escaping -- a crafted
+     * filename containing a quote or CR/LF could otherwise break out of the
+     * {@code filename="..."} parameter or inject an extra header entirely. */
+    @Test
+    void downloadEscapesQuotesAndStripsControlCharactersFromTheFilenameInContentDisposition() throws Exception {
+        UserAccount musician = persistActiveMusician("musician-filename-injection-dl@example.com", "MusicianPass1!");
+        Collection collection = collectionRepository.saveAndFlush(new Collection("Injection Collection", null, FIXED_NOW));
+        String storageKey = fileStorage.store(new java.io.ByteArrayInputStream("bytes".getBytes()));
+        String maliciousFilename = "evil\"; x-injected=\"header\r\nX-Injected: true\".pdf";
+        SheetMusic piece = sheetMusicRepository.saveAndFlush(new SheetMusic("Injection Piece", "Composer", collection,
+                storageKey, maliciousFilename, "application/pdf", true, FIXED_NOW));
+
+        Cookie csrf = fetchCsrfCookie();
+        Cookie accessToken = loginAndGetAccessTokenCookie("musician-filename-injection-dl@example.com", "MusicianPass1!", csrf);
+
+        MvcResult result = mockMvc.perform(get("/api/sheet-music/" + piece.getId() + "/file")
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue()))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String contentDisposition = result.getResponse().getHeader("Content-Disposition");
+        assertThat(contentDisposition).doesNotContain("\r").doesNotContain("\n");
+        assertThat(contentDisposition).contains("evil\\\"; x-injected=\\\"header");
+        assertThat(result.getResponse().getHeaderNames()).doesNotContain("X-Injected");
+    }
+
     @Test
     void downloadOfAnInactivePieceReturnsNotFoundEvenWhenTheActorWouldOtherwiseBeAuthorized() throws Exception {
         UserAccount musician = persistActiveMusician("musician-inactive-dl@example.com", "MusicianPass1!");
