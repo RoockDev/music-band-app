@@ -310,6 +310,57 @@ class EventControllerIntegrationTest extends IntegrationTestBase {
         eventGroupAccessRepository.saveAndFlush(new EventGroupAccess(event, group));
     }
 
+    /**
+     * Fix (WARNING — reliability coverage gap): the {@code allScope} and group-grant branches
+     * of {@code EventAccessService#canAccess} already have this level of end-to-end proof
+     * ({@link #allScopeEventIsVisibleToAnyAuthenticatedMusicianInTheInternalCalendar},
+     * {@link #musicianInTheScopedGroupCanSeeTheEventInTheInternalCalendarAndFetchItById}); the
+     * individually-scoped-musician branch ({@code event_musician_access}, not group scoping)
+     * was only verified by mocked unit tests. This proves it through the real endpoint + real
+     * Postgres + real {@code SecurityConfig}: creating an event scoped to one specific
+     * musician (via {@code CreateEventRequest.musicianIds}, exercising
+     * {@link EventAccessGrantService} too) makes it visible to that exact musician and
+     * invisible (404) to a musician not individually granted and not covered by any group.
+     */
+    @Test
+    void individuallyScopedMusicianCanSeeTheEventThroughTheRealEndpointWhileAnUnscopedMusicianCannot() throws Exception {
+        UserAccount admin = persistActive("admin-individual-scope@example.com", "AdminPass1!", UserRole.ADMIN);
+        adminPermissionRepository.saveAndFlush(new AdminPermission(admin, Permission.MANAGE_EVENTS));
+        UserAccount scopedMusician = persistActive("musician-individually-scoped@example.com", "MusicianPass1!", UserRole.MUSICIAN);
+        UserAccount unscopedMusician = persistActive("musician-not-scoped@example.com", "MusicianPass1!", UserRole.MUSICIAN);
+
+        Cookie adminCsrf = fetchCsrfCookie();
+        Cookie adminToken = loginAndGetAccessTokenCookie("admin-individual-scope@example.com", "AdminPass1!", adminCsrf);
+
+        MvcResult createResult = mockMvc.perform(post("/api/events")
+                        .cookie(adminCsrf, adminToken)
+                        .header("X-XSRF-TOKEN", adminCsrf.getValue())
+                        .contentType("application/json")
+                        .content("{\"title\":\"One-on-One Coaching\",\"startsAt\":\"2026-06-01T19:00:00Z\","
+                                + "\"isPublic\":false,\"allScope\":false,\"musicianIds\":[" + scopedMusician.getId() + "]}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+        Event created = eventRepository.findAll().stream()
+                .filter(e -> e.getTitle().equals("One-on-One Coaching")).findFirst().orElseThrow();
+
+        Cookie scopedCsrf = fetchCsrfCookie();
+        Cookie scopedToken = loginAndGetAccessTokenCookie("musician-individually-scoped@example.com", "MusicianPass1!", scopedCsrf);
+        mockMvc.perform(get("/api/events/" + created.getId())
+                        .cookie(scopedCsrf, scopedToken)
+                        .header("X-XSRF-TOKEN", scopedCsrf.getValue()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("One-on-One Coaching"));
+
+        Cookie unscopedCsrf = fetchCsrfCookie();
+        Cookie unscopedToken = loginAndGetAccessTokenCookie("musician-not-scoped@example.com", "MusicianPass1!", unscopedCsrf);
+        mockMvc.perform(get("/api/events/" + created.getId())
+                        .cookie(unscopedCsrf, unscopedToken)
+                        .header("X-XSRF-TOKEN", unscopedCsrf.getValue()))
+                .andExpect(status().isNotFound());
+
+        assertThat(createResult.getResponse().getStatus()).isEqualTo(201);
+    }
+
     // ---- edit() ----
 
     @Test
@@ -334,6 +385,34 @@ class EventControllerIntegrationTest extends IntegrationTestBase {
                 "Event", target.getId());
         assertThat(history).hasSize(1);
         assertThat(history.get(0).getAction()).isEqualTo("EVENT_UPDATED");
+    }
+
+    /**
+     * Fix (WARNING — reliability precedent break): {@link #createByAnAdminLackingManageEventsPermissionIsForbidden}
+     * and {@code cancelByAnAdminLackingManageEventsPermissionIsForbidden} already prove this at
+     * the HTTP/integration level for {@code create()}/{@code cancel()}; {@code edit()} only had
+     * the equivalent proof in {@code EventServiceTest}'s mocked unit tests, breaking the
+     * precedent this PR's own other two mutations (and {@code GroupControllerIntegrationTest})
+     * set. Proves {@code PUT /api/events/{id}} is actually denied over real HTTP + real
+     * Postgres + real {@code SecurityConfig}, not just at the mocked service layer.
+     */
+    @Test
+    void editByAnAdminLackingManageEventsPermissionIsForbidden() throws Exception {
+        persistActive("admin-edit-nopermission@example.com", "AdminPass1!", UserRole.ADMIN);
+        Event target = eventRepository.saveAndFlush(new Event("Untouchable Event", null, null, FIXED_NOW, false, true, FIXED_NOW));
+
+        Cookie csrf = fetchCsrfCookie();
+        Cookie accessToken = loginAndGetAccessTokenCookie("admin-edit-nopermission@example.com", "AdminPass1!", csrf);
+
+        mockMvc.perform(put("/api/events/" + target.getId())
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue())
+                        .contentType("application/json")
+                        .content("{\"title\":\"Hijacked\",\"startsAt\":\"2026-06-01T19:00:00Z\","
+                                + "\"isPublic\":false,\"allScope\":true}"))
+                .andExpect(status().isForbidden());
+
+        assertThat(eventRepository.findById(target.getId()).orElseThrow().getTitle()).isEqualTo("Untouchable Event");
     }
 
     @Test
