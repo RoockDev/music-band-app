@@ -14,6 +14,7 @@ import com.banda.users.UserStatus;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
@@ -23,6 +24,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -50,7 +53,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * proving the "Delete in-use group" scenario end-to-end through real HTTP.
  */
 @AutoConfigureMockMvc
-@Import(GroupControllerIntegrationTest.FixedClockConfig.class)
+@Import({GroupControllerIntegrationTest.FixedClockConfig.class, GroupControllerIntegrationTest.RaceSyncConfig.class})
 class GroupControllerIntegrationTest extends IntegrationTestBase {
 
     static final Instant FIXED_NOW = Instant.parse("2026-01-01T00:00:00Z");
@@ -223,9 +226,29 @@ class GroupControllerIntegrationTest extends IntegrationTestBase {
      * actually maps to 409 over real HTTP — {@link GroupServiceTest} only proves the service
      * throws the exception, never that the controller returns 409 for it (versus falling
      * through to a broader handler, or leaking as 500). Two real concurrent {@code PUT}
-     * requests race the same group's {@code @Version} check, mirroring
-     * {@code com.banda.security.PermissionServiceIntegrationTest}'s real-thread pattern: one
-     * request must win (200), the other must lose the optimistic-lock race and get a real 409.
+     * requests race the same group's {@code @Version} check: one request must win (200), the
+     * other must lose the optimistic-lock race and get a real 409.
+     *
+     * <p><b>Root cause of the original flake:</b> the first version of this test synchronized
+     * both HTTP threads with a bare {@link CyclicBarrier} right before {@code mockMvc.perform}
+     * and hoped the two requests would race all the way down into {@code saveAndFlush}
+     * together. Under full-suite load that hope wasn't guaranteed: a slow thread-pool/HikariCP
+     * connection handoff could let request A's entire round trip (read → write → commit)
+     * finish before request B even reached {@code GroupRepository#findById} — at which point B
+     * simply reads A's already-bumped {@code @Version} and also succeeds, producing {@code
+     * [200, 200]} instead of a genuine conflict. Racing at the HTTP boundary only synchronizes
+     * *arrival*, not the actual DB read that determines whether the two requests observe the
+     * same version.
+     *
+     * <p><b>Fix:</b> mirrors {@link GroupServiceDeleteRaceIntegrationTest}'s dynamic-proxy
+     * technique — {@link RaceSyncConfig} wraps the real {@link GroupRepository} bean and pauses
+     * <em>every</em> {@code findById} call on a 2-party {@link CyclicBarrier} until both HTTP
+     * threads have reached that exact read. Since each request runs in its own transaction
+     * (own persistence context), forcing both {@code findById} calls to complete before either
+     * thread is allowed to proceed to its own {@code saveAndFlush} guarantees both threads load
+     * the identical {@code @Version}, so exactly one {@code saveAndFlush} can win and the other
+     * is deterministically rejected by the real optimistic-lock check — not a coin flip on
+     * thread-pool timing.
      */
     @Test
     void concurrentEditsOnTheSameGroupResultInExactlyOneSuccessAndOneRealConflict() throws Exception {
@@ -236,39 +259,37 @@ class GroupControllerIntegrationTest extends IntegrationTestBase {
         Cookie csrf = fetchCsrfCookie();
         Cookie accessToken = loginAndGetAccessTokenCookie("admin-edit-race@example.com", "AdminPass1!", csrf);
 
-        CyclicBarrier barrier = new CyclicBarrier(2);
-        Callable<Integer> requestA = () -> {
-            barrier.await(5, TimeUnit.SECONDS);
-            return mockMvc.perform(put("/api/groups/" + target.getId())
+        RaceSyncConfig.findByIdBarrier = new CyclicBarrier(2);
+        try {
+            Callable<Integer> requestA = () -> mockMvc.perform(put("/api/groups/" + target.getId())
                             .cookie(csrf, accessToken)
                             .header("X-XSRF-TOKEN", csrf.getValue())
                             .contentType("application/json")
                             .content("{\"name\":\"Renamed By A\"}"))
                     .andReturn().getResponse().getStatus();
-        };
-        Callable<Integer> requestB = () -> {
-            barrier.await(5, TimeUnit.SECONDS);
-            return mockMvc.perform(put("/api/groups/" + target.getId())
+            Callable<Integer> requestB = () -> mockMvc.perform(put("/api/groups/" + target.getId())
                             .cookie(csrf, accessToken)
                             .header("X-XSRF-TOKEN", csrf.getValue())
                             .contentType("application/json")
                             .content("{\"name\":\"Renamed By B\"}"))
                     .andReturn().getResponse().getStatus();
-        };
 
-        ExecutorService executor = Executors.newFixedThreadPool(2);
-        try {
-            List<Future<Integer>> futures = executor.invokeAll(List.of(requestA, requestB));
-            List<Integer> statuses = new ArrayList<>();
-            for (Future<Integer> future : futures) {
-                statuses.add(future.get(10, TimeUnit.SECONDS));
+            ExecutorService executor = Executors.newFixedThreadPool(2);
+            try {
+                List<Future<Integer>> futures = executor.invokeAll(List.of(requestA, requestB));
+                List<Integer> statuses = new ArrayList<>();
+                for (Future<Integer> future : futures) {
+                    statuses.add(future.get(10, TimeUnit.SECONDS));
+                }
+
+                assertThat(statuses)
+                        .as("exactly one PUT must win (200) and the other must lose the real optimistic-lock race (409)")
+                        .containsExactlyInAnyOrder(200, 409);
+            } finally {
+                executor.shutdown();
             }
-
-            assertThat(statuses)
-                    .as("exactly one PUT must win (200) and the other must lose the real optimistic-lock race (409)")
-                    .containsExactlyInAnyOrder(200, 409);
         } finally {
-            executor.shutdown();
+            RaceSyncConfig.findByIdBarrier = null;
         }
     }
 
@@ -509,6 +530,42 @@ class GroupControllerIntegrationTest extends IntegrationTestBase {
         @Primary
         public Clock clock() {
             return Clock.fixed(FIXED_NOW, ZoneOffset.UTC);
+        }
+    }
+
+    /**
+     * Wraps the real {@code groupRepository} bean so {@link GroupService} (and everything else
+     * in the context) transparently uses this proxy instead — {@code @Primary} wins autowiring
+     * over the original bean, same technique as
+     * {@link GroupServiceDeleteRaceIntegrationTest.RaceSyncConfig}. Every call is delegated to
+     * the real repository untouched; only {@code findById} additionally rendezvous on
+     * {@link #findByIdBarrier} when a test has armed one, so two concurrent callers are forced
+     * to complete their read before either is allowed to proceed to its own {@code
+     * saveAndFlush} — see {@link #concurrentEditsOnTheSameGroupResultInExactlyOneSuccessAndOneRealConflict}'s
+     * Javadoc for why this precise a synchronization point is required.
+     */
+    @TestConfiguration
+    static class RaceSyncConfig {
+
+        static volatile CyclicBarrier findByIdBarrier;
+
+        @Bean
+        @Primary
+        GroupRepository racingGroupRepository(@Qualifier("groupRepository") GroupRepository real) {
+            return (GroupRepository) Proxy.newProxyInstance(
+                    GroupRepository.class.getClassLoader(),
+                    new Class<?>[]{GroupRepository.class},
+                    (proxyInstance, method, args) -> {
+                        CyclicBarrier barrier = findByIdBarrier;
+                        if ("findById".equals(method.getName()) && barrier != null) {
+                            barrier.await(5, TimeUnit.SECONDS);
+                        }
+                        try {
+                            return method.invoke(real, args);
+                        } catch (InvocationTargetException e) {
+                            throw e.getCause();
+                        }
+                    });
         }
     }
 }
