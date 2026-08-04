@@ -44,8 +44,7 @@ public class UserController {
     @PostMapping
     public ResponseEntity<CreateUserResponse> create(@AuthenticationPrincipal UserAccount actor,
                                                        @Valid @RequestBody CreateUserRequest request) {
-        UserService.CreateUserResult result = userService.create(actor, request.email(), request.role(),
-                request.minor(), request.guardianContact(), request.consentOnFile());
+        UserService.CreateUserResult result = userService.create(actor, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(CreateUserResponse.from(result));
     }
 
@@ -62,8 +61,7 @@ public class UserController {
     @PutMapping("/{id}")
     public UserAccountResponse edit(@AuthenticationPrincipal UserAccount actor, @PathVariable Long id,
                                      @Valid @RequestBody UpdateUserRequest request) {
-        UserAccount updated = userService.edit(actor, id, request.email(), request.role(),
-                request.minor(), request.guardianContact(), request.consentOnFile());
+        UserAccount updated = userService.edit(actor, id, request);
         return UserAccountResponse.from(updated);
     }
 
@@ -85,6 +83,16 @@ public class UserController {
 
     @ExceptionHandler(DuplicateEmailException.class)
     public ResponseEntity<Map<String, String>> handleDuplicateEmail(DuplicateEmailException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", e.getMessage()));
+    }
+
+    @ExceptionHandler(SelfTargetNotAllowedException.class)
+    public ResponseEntity<Map<String, String>> handleSelfTarget(SelfTargetNotAllowedException e) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", e.getMessage()));
+    }
+
+    @ExceptionHandler(ConcurrentUserModificationException.class)
+    public ResponseEntity<Map<String, String>> handleConcurrentModification(ConcurrentUserModificationException e) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", e.getMessage()));
     }
 }

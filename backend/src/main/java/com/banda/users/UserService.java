@@ -4,10 +4,13 @@ import com.banda.audit.AuditService;
 import com.banda.security.Permission;
 import com.banda.security.PermissionService;
 import com.banda.security.TokenHasher;
+import com.banda.users.dto.CreateUserRequest;
+import com.banda.users.dto.UpdateUserRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -15,6 +18,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Section 3 (User/Musician Management) use cases: admin-driven CRUD over
@@ -26,6 +30,14 @@ import java.util.List;
  * resolve it from the authenticated principal ({@code SecurityContextHolder} via
  * {@code @AuthenticationPrincipal}), never from client-supplied request data — the same
  * contract {@link PermissionService} and {@link AuditService} themselves document.
+ *
+ * <p><b>Privilege-escalation gate:</b> {@link Permission#MANAGE_USERS} alone only ever
+ * grants ordinary user/musician profile CRUD. Any actual {@code role} change — {@link #create}
+ * of an ADMIN account, or {@link #edit} changing a target's role away from what it currently
+ * is, in either direction — additionally requires {@link Permission#MANAGE_ADMIN_ROLES}.
+ * {@link #edit} and {@link #deactivate} also unconditionally reject an actor targeting their
+ * own account ({@link SelfTargetNotAllowedException}), regardless of which permissions they
+ * hold.
  *
  * <p><b>Activation token delivery:</b> {@link #create} generates and persists the
  * account's initial ACTIVATION {@link PasswordToken} (the hook {@code AuthService}'s own
@@ -63,18 +75,22 @@ public class UserService {
         this.activationTokenTtl = activationTokenTtl;
     }
 
-    public CreateUserResult create(UserAccount actor, String email, UserRole role,
-                                    boolean minor, String guardianContact, boolean consentOnFile) {
+    public CreateUserResult create(UserAccount actor, CreateUserRequest request) {
         permissionService.requirePermission(actor, Permission.MANAGE_USERS);
-        requireValidMinorFields(minor, guardianContact, consentOnFile);
+        if (request.role() == UserRole.ADMIN) {
+            // Minting a new admin is strictly more privileged than ordinary user CRUD —
+            // MANAGE_USERS alone must never be enough to create an ADMIN account.
+            permissionService.requirePermission(actor, Permission.MANAGE_ADMIN_ROLES);
+        }
+        requireValidMinorFields(request.minor(), request.guardianContact(), request.consentOnFile());
 
-        if (userAccountRepository.existsByEmail(email)) {
+        if (userAccountRepository.existsByEmail(request.email())) {
             throw new DuplicateEmailException();
         }
 
         Instant now = clock.instant();
-        UserAccount user = new UserAccount(email, role, UserStatus.PENDING, now);
-        applyMinorFields(user, minor, guardianContact, consentOnFile);
+        UserAccount user = new UserAccount(request.email(), request.role(), UserStatus.PENDING, now);
+        applyMinorFields(user, request.minor(), request.guardianContact(), request.consentOnFile());
 
         UserAccount saved;
         try {
@@ -92,30 +108,49 @@ public class UserService {
         passwordTokenRepository.saveAndFlush(activationToken);
 
         auditService.record(actor.getId(), "USER_CREATED", "UserAccount", saved.getId(),
-                "role=" + role + ", minor=" + minor);
+                "role=" + request.role() + ", minor=" + request.minor());
         log.info("User account created: {}", saved.getId());
 
         return new CreateUserResult(saved, rawActivationToken);
     }
 
-    public UserAccount edit(UserAccount actor, Long userId, String email, UserRole role,
-                             boolean minor, String guardianContact, boolean consentOnFile) {
+    public UserAccount edit(UserAccount actor, Long userId, UpdateUserRequest request) {
         permissionService.requirePermission(actor, Permission.MANAGE_USERS);
+        requireNotSelf(actor, userId);
         UserAccount user = requireUser(userId);
-        requireValidMinorFields(minor, guardianContact, consentOnFile);
+        requireValidMinorFields(request.minor(), request.guardianContact(), request.consentOnFile());
 
-        if (!user.getEmail().equalsIgnoreCase(email) && userAccountRepository.existsByEmail(email)) {
+        if (request.role() != user.getRole()) {
+            // An actual role change (either direction) is strictly more privileged than
+            // ordinary profile CRUD — MANAGE_USERS alone must never be enough.
+            permissionService.requirePermission(actor, Permission.MANAGE_ADMIN_ROLES);
+        }
+
+        if (!user.getEmail().equalsIgnoreCase(request.email()) && userAccountRepository.existsByEmail(request.email())) {
             throw new DuplicateEmailException();
         }
 
-        user.setEmail(email);
-        user.setRole(role);
-        applyMinorFields(user, minor, guardianContact, consentOnFile);
+        user.setEmail(request.email());
+        user.setRole(request.role());
+        applyMinorFields(user, request.minor(), request.guardianContact(), request.consentOnFile());
         user.touch(clock.instant());
-        userAccountRepository.saveAndFlush(user);
+
+        try {
+            // saveAndFlush (not save): forces the @Version check to happen NOW, inside this
+            // method, mirroring AuthService's established optimistic-locking pattern.
+            userAccountRepository.saveAndFlush(user);
+        } catch (ObjectOptimisticLockingFailureException e) {
+            // Unlike deactivate(), an edit's fields aren't safely re-appliable without
+            // knowing what changed underneath — surface the conflict to the caller as a 409
+            // instead of retrying blindly.
+            throw new ConcurrentUserModificationException();
+        } catch (DataIntegrityViolationException e) {
+            // Lost a concurrent email-uniqueness race — same TOCTOU backstop as create().
+            throw new DuplicateEmailException();
+        }
 
         auditService.record(actor.getId(), "USER_UPDATED", "UserAccount", userId,
-                "role=" + role + ", minor=" + minor);
+                "role=" + request.role() + ", minor=" + request.minor());
         log.info("User account updated: {}", userId);
 
         return user;
@@ -128,17 +163,23 @@ public class UserService {
      * fail-closes on a non-ACTIVE status for every subsequent request, so this bump is
      * defense-in-depth invalidating any already-authenticated in-flight session state too,
      * not the sole mechanism the block relies on.
+     *
+     * <p>Idempotent: deactivating an already-DEACTIVATED account is a silent no-op — no
+     * duplicate audit entry, no extra {@code tokenVersion} bump. Retries once on a lost
+     * optimistic-lock race, mirroring {@code AuthService#bumpTokenVersionWithRetry}: silently
+     * failing to deactivate an account is worse than silently failing a profile edit, so
+     * (unlike {@link #edit}) this does not surface the race to the caller as an error.
      */
     public void deactivate(UserAccount actor, Long userId) {
         permissionService.requirePermission(actor, Permission.MANAGE_USERS);
+        requireNotSelf(actor, userId);
         UserAccount user = requireUser(userId);
 
-        user.setStatus(UserStatus.DEACTIVATED);
-        user.bumpTokenVersion();
-        user.touch(clock.instant());
-        userAccountRepository.saveAndFlush(user);
+        if (!applyDeactivationWithRetry(user, userId)) {
+            return;
+        }
 
-        auditService.record(actor.getId(), "USER_DEACTIVATED", "UserAccount", userId, null);
+        auditService.record(actor.getId(), "USER_DEACTIVATED", "UserAccount", userId);
         log.info("User account deactivated: {}", userId);
     }
 
@@ -154,9 +195,49 @@ public class UserService {
         return userAccountRepository.findAll();
     }
 
+    /**
+     * Returns {@code true} if this call actually performed the deactivation, {@code false} if
+     * the account was already {@code DEACTIVATED} — either found that way on entry, or
+     * discovered that way on the retry reload after losing the initial optimistic-lock race
+     * (a concurrent winner deactivated it first). If the retry itself also loses the race,
+     * that failure is allowed to propagate uncaught, matching
+     * {@code AuthService#bumpTokenVersionWithRetry}'s "fail loudly rather than silently drop
+     * it" contract.
+     */
+    private boolean applyDeactivationWithRetry(UserAccount user, Long userId) {
+        if (user.getStatus() == UserStatus.DEACTIVATED) {
+            return false;
+        }
+
+        user.setStatus(UserStatus.DEACTIVATED);
+        user.bumpTokenVersion();
+        user.touch(clock.instant());
+        try {
+            userAccountRepository.saveAndFlush(user);
+            return true;
+        } catch (ObjectOptimisticLockingFailureException e) {
+            UserAccount fresh = userAccountRepository.findById(userId).orElseThrow(() -> e);
+            if (fresh.getStatus() == UserStatus.DEACTIVATED) {
+                return false;
+            }
+            fresh.setStatus(UserStatus.DEACTIVATED);
+            fresh.bumpTokenVersion();
+            fresh.touch(clock.instant());
+            userAccountRepository.saveAndFlush(fresh);
+            return true;
+        }
+    }
+
     private UserAccount requireUser(Long userId) {
         return userAccountRepository.findById(userId)
                 .orElseThrow(() -> new UserNotFoundException(userId));
+    }
+
+    /** No actor may edit/deactivate their own account via this service (Sec.2), full stop. */
+    private void requireNotSelf(UserAccount actor, Long userId) {
+        if (Objects.equals(userId, actor.getId())) {
+            throw new SelfTargetNotAllowedException();
+        }
     }
 
     /** Sec.3: minor accounts require guardian contact + consent, enforced. */
