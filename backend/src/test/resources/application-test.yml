@@ -23,6 +23,9 @@ app:
     # Secure-flagged cookie would never round-trip back to the client — disable it here.
     cookie-secure: false
   file-storage:
-    # A disposable, JVM-tmp-relative directory — never the real /data/files default,
-    # which likely doesn't exist/isn't writable in CI/sandboxed test environments.
+    # Fallback only: every @SpringBootTest integration test extends IntegrationTestBase,
+    # which always overrides this via @DynamicPropertySource with a fresh, cleaned-up
+    # @TempDir-equivalent directory per JVM test run (see that class's own Javadoc). This
+    # value only applies if some future test loads the "test" profile without going through
+    # that base class.
     base-dir: ${java.io.tmpdir}/banda-test-files
