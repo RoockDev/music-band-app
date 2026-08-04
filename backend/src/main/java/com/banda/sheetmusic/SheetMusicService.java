@@ -2,14 +2,10 @@ package com.banda.sheetmusic;
 
 import com.banda.audit.AuditService;
 import com.banda.common.FileStorage;
-import com.banda.groups.Group;
-import com.banda.groups.GroupRepository;
 import com.banda.security.Permission;
 import com.banda.security.PermissionService;
 import com.banda.sheetmusic.dto.UploadSheetMusicRequest;
 import com.banda.users.UserAccount;
-import com.banda.users.UserAccountRepository;
-import com.banda.users.UserRole;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -19,15 +15,15 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.time.Clock;
 import java.time.Instant;
-import java.util.List;
 import java.util.Set;
 
 /**
  * Section 5 (Sheet Music) upload use case: gated by {@link Permission#MANAGE_SHEET_MUSIC}
  * independent of the base ADMIN role (Sec.2/Sec.10), persists the {@code storageKey}
- * {@link FileStorage} returns, applies the requested group/individual access scope, and
- * audits (Sec.11) — the exact "gate -> mutate -> audit" shape {@code GroupService}/
- * {@code UserService} established, copied here rather than reinvented.
+ * {@link FileStorage} returns, applies the requested group/individual access scope (delegated
+ * to {@link SheetMusicAccessGrantService}), and audits (Sec.11) — the exact
+ * "gate -> mutate -> audit" shape {@code GroupService}/{@code UserService} established, copied
+ * here rather than reinvented.
  *
  * <p>{@code actor} is trusted as-is: callers (currently {@link SheetMusicController}) MUST
  * resolve it from the authenticated principal, never from client-supplied request data —
@@ -50,37 +46,28 @@ public class SheetMusicService {
 
     private final SheetMusicRepository sheetMusicRepository;
     private final CollectionRepository collectionRepository;
-    private final SheetGroupAccessRepository sheetGroupAccessRepository;
-    private final SheetMusicianAccessRepository sheetMusicianAccessRepository;
-    private final UserAccountRepository userAccountRepository;
-    private final GroupRepository groupRepository;
     private final PermissionService permissionService;
     private final AuditService auditService;
     private final FileStorage fileStorage;
     private final SheetMusicAccessService accessService;
+    private final SheetMusicAccessGrantService accessGrantService;
     private final Clock clock;
 
     public SheetMusicService(SheetMusicRepository sheetMusicRepository,
                               CollectionRepository collectionRepository,
-                              SheetGroupAccessRepository sheetGroupAccessRepository,
-                              SheetMusicianAccessRepository sheetMusicianAccessRepository,
-                              UserAccountRepository userAccountRepository,
-                              GroupRepository groupRepository,
                               PermissionService permissionService,
                               AuditService auditService,
                               FileStorage fileStorage,
                               SheetMusicAccessService accessService,
+                              SheetMusicAccessGrantService accessGrantService,
                               Clock clock) {
         this.sheetMusicRepository = sheetMusicRepository;
         this.collectionRepository = collectionRepository;
-        this.sheetGroupAccessRepository = sheetGroupAccessRepository;
-        this.sheetMusicianAccessRepository = sheetMusicianAccessRepository;
-        this.userAccountRepository = userAccountRepository;
-        this.groupRepository = groupRepository;
         this.permissionService = permissionService;
         this.auditService = auditService;
         this.fileStorage = fileStorage;
         this.accessService = accessService;
+        this.accessGrantService = accessGrantService;
         this.clock = clock;
     }
 
@@ -111,7 +98,7 @@ public class SheetMusicService {
         SheetMusic saved = sheetMusicRepository.saveAndFlush(sheetMusic);
 
         try {
-            applyAccessScope(saved, request.groupIds(), request.musicianIds());
+            accessGrantService.applyAccessScope(saved, request.groupIds(), request.musicianIds());
         } catch (RuntimeException e) {
             // applyAccessScope can throw (e.g. GroupNotFoundException/MusicianNotFoundException
             // on an admin typo), which rolls back the DB transaction -- but fileStorage.store
@@ -188,21 +175,6 @@ public class SheetMusicService {
     public record DownloadResult(byte[] content, String contentType, String filename) {
     }
 
-    private void applyAccessScope(SheetMusic sheetMusic, List<Long> groupIds, List<Long> musicianIds) {
-        if (groupIds != null) {
-            for (Long groupId : groupIds) {
-                Group group = requireGroup(groupId);
-                sheetGroupAccessRepository.saveAndFlush(new SheetGroupAccess(sheetMusic, group));
-            }
-        }
-        if (musicianIds != null) {
-            for (Long musicianId : musicianIds) {
-                UserAccount musician = requireMusician(musicianId);
-                sheetMusicianAccessRepository.saveAndFlush(new SheetMusicianAccess(sheetMusic, musician));
-            }
-        }
-    }
-
     /**
      * Rejects any content-type not in {@link #ALLOWED_CONTENT_TYPES} with
      * {@link InvalidFileTypeException} (mapped to 400 by {@link SheetMusicController}) —
@@ -220,20 +192,5 @@ public class SheetMusicService {
     private Collection requireCollection(Long collectionId) {
         return collectionRepository.findById(collectionId)
                 .orElseThrow(() -> new CollectionNotFoundException(collectionId));
-    }
-
-    private Group requireGroup(Long groupId) {
-        return groupRepository.findById(groupId).orElseThrow(() -> new GroupNotFoundException(groupId));
-    }
-
-    /** Mirrors {@code GroupService#requireMusician}: a non-musician id is treated identically
-     * to a nonexistent one (404-style), not just a nonexistent id. */
-    private UserAccount requireMusician(Long musicianId) {
-        UserAccount account = userAccountRepository.findById(musicianId)
-                .orElseThrow(() -> new MusicianNotFoundException(musicianId));
-        if (account.getRole() != UserRole.MUSICIAN) {
-            throw new MusicianNotFoundException(musicianId);
-        }
-        return account;
     }
 }

@@ -2,14 +2,11 @@ package com.banda.sheetmusic;
 
 import com.banda.audit.AuditService;
 import com.banda.common.FileStorage;
-import com.banda.groups.Group;
-import com.banda.groups.GroupRepository;
 import com.banda.security.Permission;
 import com.banda.security.PermissionDeniedException;
 import com.banda.security.PermissionService;
 import com.banda.sheetmusic.dto.UploadSheetMusicRequest;
 import com.banda.users.UserAccount;
-import com.banda.users.UserAccountRepository;
 import com.banda.users.UserRole;
 import com.banda.users.UserStatus;
 import org.junit.jupiter.api.BeforeEach;
@@ -30,18 +27,19 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
  * Section 5 upload use case: gated by {@link Permission#MANAGE_SHEET_MUSIC} (Sec.2/Sec.10),
- * persists {@code storageKey} from {@link FileStorage} (task 6.2's own test focus), applies
- * the group/individual access scope atomically, and audits (Sec.11) — the "gate -> mutate ->
- * audit" shape {@code GroupService}/{@code UserService} established.
+ * persists {@code storageKey} from {@link FileStorage} (task 6.2's own test focus), delegates
+ * group/individual access-scope application to {@link SheetMusicAccessGrantService} (see that
+ * class's own test for the detailed group/musician grant behavior), and audits (Sec.11) — the
+ * "gate -> mutate -> audit" shape {@code GroupService}/{@code UserService} established.
  */
 class SheetMusicServiceTest {
 
@@ -49,14 +47,11 @@ class SheetMusicServiceTest {
 
     private SheetMusicRepository sheetMusicRepository;
     private CollectionRepository collectionRepository;
-    private SheetGroupAccessRepository sheetGroupAccessRepository;
-    private SheetMusicianAccessRepository sheetMusicianAccessRepository;
-    private UserAccountRepository userAccountRepository;
-    private GroupRepository groupRepository;
     private PermissionService permissionService;
     private AuditService auditService;
     private FileStorage fileStorage;
     private SheetMusicAccessService accessService;
+    private SheetMusicAccessGrantService accessGrantService;
     private SheetMusicService sheetMusicService;
 
     private Collection collection;
@@ -65,19 +60,15 @@ class SheetMusicServiceTest {
     void setUp() throws IOException {
         sheetMusicRepository = mock(SheetMusicRepository.class);
         collectionRepository = mock(CollectionRepository.class);
-        sheetGroupAccessRepository = mock(SheetGroupAccessRepository.class);
-        sheetMusicianAccessRepository = mock(SheetMusicianAccessRepository.class);
-        userAccountRepository = mock(UserAccountRepository.class);
-        groupRepository = mock(GroupRepository.class);
         permissionService = mock(PermissionService.class);
         auditService = mock(AuditService.class);
         fileStorage = mock(FileStorage.class);
         accessService = mock(SheetMusicAccessService.class);
+        accessGrantService = mock(SheetMusicAccessGrantService.class);
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
 
         sheetMusicService = new SheetMusicService(sheetMusicRepository, collectionRepository,
-                sheetGroupAccessRepository, sheetMusicianAccessRepository, userAccountRepository, groupRepository,
-                permissionService, auditService, fileStorage, accessService, clock);
+                permissionService, auditService, fileStorage, accessService, accessGrantService, clock);
 
         collection = new Collection("Marches", null, NOW);
         when(collectionRepository.findById(1L)).thenReturn(Optional.of(collection));
@@ -194,111 +185,48 @@ class SheetMusicServiceTest {
         }
     }
 
-    // ---- access scope application ----
+    // ---- access scope delegation (detailed group/musician grant behavior lives in
+    // SheetMusicAccessGrantServiceTest) ----
 
     @Test
-    void uploadAppliesGroupAccessScopeForEveryGroupIdProvided() {
+    void uploadDelegatesAccessScopeApplicationToAccessGrantServiceWithTheSavedEntityAndRequestedScope() {
         UserAccount actor = adminActor();
-        Group group = new Group("Brass Section", null, NOW);
-        org.springframework.test.util.ReflectionTestUtils.setField(group, "id", 5L);
-        when(groupRepository.findById(5L)).thenReturn(Optional.of(group));
-        UploadSheetMusicRequest request = new UploadSheetMusicRequest("Title", null, 1L, false, List.of(5L), null);
+        UploadSheetMusicRequest request = new UploadSheetMusicRequest("Title", null, 1L, false, List.of(5L), List.of(7L));
 
-        sheetMusicService.upload(actor, request, "f.pdf", "application/pdf", fakeFileContent());
+        SheetMusic saved = sheetMusicService.upload(actor, request, "f.pdf", "application/pdf", fakeFileContent());
 
-        ArgumentCaptor<SheetGroupAccess> captor = ArgumentCaptor.forClass(SheetGroupAccess.class);
-        verify(sheetGroupAccessRepository).saveAndFlush(captor.capture());
-        assertThat(captor.getValue().getGroup()).isSameAs(group);
+        verify(accessGrantService).applyAccessScope(saved, List.of(5L), List.of(7L));
     }
 
-    @Test
-    void uploadOnAnUnknownGroupIdInScopeThrowsGroupNotFoundException() {
-        UserAccount actor = adminActor();
-        when(groupRepository.findById(999L)).thenReturn(Optional.empty());
-        UploadSheetMusicRequest request = new UploadSheetMusicRequest("Title", null, 1L, false, List.of(999L), null);
-
-        assertThatThrownBy(() -> sheetMusicService.upload(actor, request, "f.pdf", "application/pdf", fakeFileContent()))
-                .isInstanceOf(GroupNotFoundException.class);
-    }
-
-    /** Resilience fix: {@code fileStorage.store} runs BEFORE {@code applyAccessScope}, outside
+    /** Resilience fix: {@code fileStorage.store} runs BEFORE access-scope application, outside
      * the DB transaction's control -- a failed access-scope application (e.g. an admin typo in
      * a group id) must not leak the already-written file on disk. */
     @Test
-    void uploadOnAFailedGroupAccessScopeCleansUpTheAlreadyStoredFile() throws IOException {
+    void uploadOnAFailedAccessScopeApplicationCleansUpTheAlreadyStoredFile() throws IOException {
         UserAccount actor = adminActor();
-        when(groupRepository.findById(999L)).thenReturn(Optional.empty());
+        doThrow(new GroupNotFoundException(999L)).when(accessGrantService)
+                .applyAccessScope(any(SheetMusic.class), eq(List.of(999L)), isNull());
         UploadSheetMusicRequest request = new UploadSheetMusicRequest("Title", null, 1L, false, List.of(999L), null);
 
         assertThatThrownBy(() -> sheetMusicService.upload(actor, request, "f.pdf", "application/pdf", fakeFileContent()))
                 .isInstanceOf(GroupNotFoundException.class);
 
         verify(fileStorage).delete("generated-storage-key");
-    }
-
-    /** Same cleanup contract for the individual-musician-scope failure path. */
-    @Test
-    void uploadOnAFailedMusicianAccessScopeCleansUpTheAlreadyStoredFile() throws IOException {
-        UserAccount actor = adminActor();
-        when(userAccountRepository.findById(999L)).thenReturn(Optional.empty());
-        UploadSheetMusicRequest request = new UploadSheetMusicRequest("Title", null, 1L, false, null, List.of(999L));
-
-        assertThatThrownBy(() -> sheetMusicService.upload(actor, request, "f.pdf", "application/pdf", fakeFileContent()))
-                .isInstanceOf(MusicianNotFoundException.class);
-
-        verify(fileStorage).delete("generated-storage-key");
+        verifyNoInteractions(auditService);
     }
 
     /** A cleanup failure (e.g. the delete itself throws) must never mask the original
-     * GroupNotFoundException the caller actually needs to see. */
+     * exception the caller actually needs to see. */
     @Test
     void uploadOnAFailedAccessScopeStillThrowsTheOriginalExceptionEvenIfCleanupItselfFails() throws IOException {
         UserAccount actor = adminActor();
-        when(groupRepository.findById(999L)).thenReturn(Optional.empty());
+        doThrow(new GroupNotFoundException(999L)).when(accessGrantService)
+                .applyAccessScope(any(SheetMusic.class), eq(List.of(999L)), isNull());
         doThrow(new IOException("disk error during cleanup")).when(fileStorage).delete("generated-storage-key");
         UploadSheetMusicRequest request = new UploadSheetMusicRequest("Title", null, 1L, false, List.of(999L), null);
 
         assertThatThrownBy(() -> sheetMusicService.upload(actor, request, "f.pdf", "application/pdf", fakeFileContent()))
                 .isInstanceOf(GroupNotFoundException.class);
-    }
-
-    @Test
-    void uploadAppliesIndividualAccessScopeForEveryMusicianIdProvided() {
-        UserAccount actor = adminActor();
-        UserAccount musician = new UserAccount("musician@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, NOW);
-        org.springframework.test.util.ReflectionTestUtils.setField(musician, "id", 7L);
-        when(userAccountRepository.findById(7L)).thenReturn(Optional.of(musician));
-        UploadSheetMusicRequest request = new UploadSheetMusicRequest("Title", null, 1L, false, null, List.of(7L));
-
-        sheetMusicService.upload(actor, request, "f.pdf", "application/pdf", fakeFileContent());
-
-        ArgumentCaptor<SheetMusicianAccess> captor = ArgumentCaptor.forClass(SheetMusicianAccess.class);
-        verify(sheetMusicianAccessRepository).saveAndFlush(captor.capture());
-        assertThat(captor.getValue().getMusician()).isSameAs(musician);
-    }
-
-    @Test
-    void uploadOnAnUnknownMusicianIdInScopeThrowsMusicianNotFoundException() {
-        UserAccount actor = adminActor();
-        when(userAccountRepository.findById(999L)).thenReturn(Optional.empty());
-        UploadSheetMusicRequest request = new UploadSheetMusicRequest("Title", null, 1L, false, null, List.of(999L));
-
-        assertThatThrownBy(() -> sheetMusicService.upload(actor, request, "f.pdf", "application/pdf", fakeFileContent()))
-                .isInstanceOf(MusicianNotFoundException.class);
-    }
-
-    @Test
-    void uploadRejectsANonMusicianIdInIndividualScopeTheSameWayAsANonexistentId() {
-        UserAccount actor = adminActor();
-        UserAccount notAMusician = adminActor();
-        org.springframework.test.util.ReflectionTestUtils.setField(notAMusician, "id", 8L);
-        when(userAccountRepository.findById(8L)).thenReturn(Optional.of(notAMusician));
-        UploadSheetMusicRequest request = new UploadSheetMusicRequest("Title", null, 1L, false, null, List.of(8L));
-
-        assertThatThrownBy(() -> sheetMusicService.upload(actor, request, "f.pdf", "application/pdf", fakeFileContent()))
-                .isInstanceOf(MusicianNotFoundException.class);
-
-        verify(sheetMusicianAccessRepository, never()).saveAndFlush(any());
     }
 
     // ---- storage failure ----
@@ -314,6 +242,7 @@ class SheetMusicServiceTest {
 
         verifyNoInteractions(sheetMusicRepository);
         verifyNoInteractions(auditService);
+        verifyNoInteractions(accessGrantService);
     }
 
     // ---- download() — task 6.3, the IDOR-safe core deliverable ----
