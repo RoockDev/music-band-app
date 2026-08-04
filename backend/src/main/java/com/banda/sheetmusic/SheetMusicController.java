@@ -6,6 +6,7 @@ import com.banda.users.UserAccount;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.InvalidMediaTypeException;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -64,18 +65,39 @@ public class SheetMusicController {
      * cannot access it — this controller never sees or could leak the distinction, by
      * construction. The whole file is loaded into memory (design doc: acceptable at this
      * app's scale), never streamed live from a static path.
+     *
+     * <p>{@code contentType} is validated against an allow-list at upload time
+     * ({@link SheetMusicService#upload}), so {@link MediaType#parseMediaType} below should
+     * never see anything it can't parse. The catch is defense-in-depth only, for any
+     * old/edge-case row that predates the allow-list: a malformed stored value degrades to a
+     * generic {@link MediaType#APPLICATION_OCTET_STREAM} download rather than a 500, since no
+     * update/delete endpoint exists yet to ever repair such a row in place.
      */
     @GetMapping("/{id}/file")
     public ResponseEntity<byte[]> downloadFile(@AuthenticationPrincipal UserAccount actor, @PathVariable Long id) {
         SheetMusicService.DownloadResult result = sheetMusicService.download(actor, id);
-        MediaType mediaType = result.contentType() != null
-                ? MediaType.parseMediaType(result.contentType())
-                : MediaType.APPLICATION_OCTET_STREAM;
+        MediaType mediaType = resolveMediaType(result.contentType());
         String filename = result.filename() != null ? result.filename() : "sheet-music-" + id;
         return ResponseEntity.ok()
                 .contentType(mediaType)
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
                 .body(result.content());
+    }
+
+    private MediaType resolveMediaType(String contentType) {
+        if (contentType == null) {
+            return MediaType.APPLICATION_OCTET_STREAM;
+        }
+        try {
+            return MediaType.parseMediaType(contentType);
+        } catch (InvalidMediaTypeException e) {
+            return MediaType.APPLICATION_OCTET_STREAM;
+        }
+    }
+
+    @ExceptionHandler(InvalidFileTypeException.class)
+    public ResponseEntity<Map<String, String>> handleInvalidFileType(InvalidFileTypeException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", e.getMessage()));
     }
 
     @ExceptionHandler(CollectionNotFoundException.class)

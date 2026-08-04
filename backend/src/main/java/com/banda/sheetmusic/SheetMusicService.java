@@ -20,6 +20,7 @@ import java.io.InputStream;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Section 5 (Sheet Music) upload use case: gated by {@link Permission#MANAGE_SHEET_MUSIC}
@@ -37,6 +38,15 @@ import java.util.List;
 public class SheetMusicService {
 
     private static final Logger log = LoggerFactory.getLogger(SheetMusicService.class);
+
+    /**
+     * Allow-list validated in {@link #upload} before the file ever reaches
+     * {@link FileStorage}. Sheet music is realistically either a scanned/exported PDF or a
+     * scanned image of a physical page — this is a deliberately minimal list for that use
+     * case, not a generic file-upload allow-list; extend it only if a real scanning workflow
+     * this app needs to support actually produces another format.
+     */
+    static final Set<String> ALLOWED_CONTENT_TYPES = Set.of("application/pdf", "image/png", "image/jpeg");
 
     private final SheetMusicRepository sheetMusicRepository;
     private final CollectionRepository collectionRepository;
@@ -85,6 +95,7 @@ public class SheetMusicService {
     public SheetMusic upload(UserAccount actor, UploadSheetMusicRequest request, String originalFilename,
                               String contentType, InputStream fileContent) {
         permissionService.requirePermission(actor, Permission.MANAGE_SHEET_MUSIC);
+        requireAllowedContentType(contentType);
         Collection collection = requireCollection(request.collectionId());
 
         String storageKey;
@@ -119,6 +130,13 @@ public class SheetMusicService {
      * treats a DEACTIVATED {@code UserAccount} at login, so {@code accessService} is never
      * even consulted for it (see the "never touches accessService" assertion this behavior
      * is tested against).
+     *
+     * <p><b>Accepted risk, not fixed here:</b> the identical 404 for "unknown id" vs.
+     * "exists but denied" closes the response-shape side channel, but a sufficiently precise
+     * timing side-channel (denied requests skip {@code fileStorage.retrieve} and the audit
+     * write) could theoretically still distinguish the two. Closing that fully would require
+     * constant-time access checks; not worth the added complexity given JWT-cookie auth
+     * already gates entry to an authenticated session for this app's threat model.
      */
     @Transactional(readOnly = true)
     public DownloadResult download(UserAccount actor, Long sheetMusicId) {
@@ -160,6 +178,20 @@ public class SheetMusicService {
                 UserAccount musician = requireMusician(musicianId);
                 sheetMusicianAccessRepository.saveAndFlush(new SheetMusicianAccess(sheetMusic, musician));
             }
+        }
+    }
+
+    /**
+     * Rejects any content-type not in {@link #ALLOWED_CONTENT_TYPES} with
+     * {@link InvalidFileTypeException} (mapped to 400 by {@link SheetMusicController}) —
+     * checked BEFORE {@link FileStorage#store} is ever called, so a rejected upload never
+     * touches disk. A missing/blank content-type (a client that sent no {@code Content-Type}
+     * on the file part at all) is rejected the same way: there is nothing to validate, so it
+     * cannot be trusted either.
+     */
+    private void requireAllowedContentType(String contentType) {
+        if (contentType == null || !ALLOWED_CONTENT_TYPES.contains(contentType)) {
+            throw new InvalidFileTypeException(contentType);
         }
     }
 

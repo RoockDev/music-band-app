@@ -149,6 +149,31 @@ class SheetMusicControllerIntegrationTest extends IntegrationTestBase {
         assertThat(sheetMusicRepository.findAll().stream().anyMatch(sm -> sm.getTitle().equals("Blocked Upload"))).isFalse();
     }
 
+    /** Section 5 upload guard: a disallowed content-type is rejected with 400 before it ever
+     * reaches disk — the fix for the CRITICAL finding that an unvalidated content-type could
+     * be stored verbatim and later crash every download of that file. */
+    @Test
+    void uploadWithADisallowedContentTypeIsRejectedWithBadRequest() throws Exception {
+        UserAccount admin = persistActiveAdmin("admin-upload-badtype@example.com", "AdminPass1!");
+        adminPermissionRepository.saveAndFlush(new AdminPermission(admin, Permission.MANAGE_SHEET_MUSIC));
+        Collection collection = collectionRepository.saveAndFlush(new Collection("Bad Types", null, FIXED_NOW));
+
+        Cookie csrf = fetchCsrfCookie();
+        Cookie accessToken = loginAndGetAccessTokenCookie("admin-upload-badtype@example.com", "AdminPass1!", csrf);
+        MockMultipartFile file = new MockMultipartFile("file", "malware.exe", "application/x-msdownload", "bytes".getBytes());
+
+        mockMvc.perform(multipart("/api/sheet-music")
+                        .file(file)
+                        .param("title", "Rejected Upload")
+                        .param("collectionId", collection.getId().toString())
+                        .param("allScope", "false")
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue()))
+                .andExpect(status().isBadRequest());
+
+        assertThat(sheetMusicRepository.findAll().stream().anyMatch(sm -> sm.getTitle().equals("Rejected Upload"))).isFalse();
+    }
+
     @Test
     void uploadWithAnUnknownCollectionIdReturnsNotFound() throws Exception {
         UserAccount admin = persistActiveAdmin("admin-upload-404@example.com", "AdminPass1!");

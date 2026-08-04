@@ -156,6 +156,44 @@ class SheetMusicServiceTest {
         verifyNoInteractions(sheetMusicRepository);
     }
 
+    // ---- content-type allow-list (upload-time file-type guard) ----
+
+    @Test
+    void uploadRejectsADisallowedContentTypeBeforeEverTouchingFileStorage() {
+        UserAccount actor = adminActor();
+        UploadSheetMusicRequest request = new UploadSheetMusicRequest("Title", null, 1L, false, null, null);
+
+        assertThatThrownBy(() -> sheetMusicService.upload(actor, request, "malware.exe",
+                "application/x-msdownload", fakeFileContent()))
+                .isInstanceOf(InvalidFileTypeException.class);
+
+        verifyNoInteractions(fileStorage);
+        verifyNoInteractions(sheetMusicRepository);
+        verifyNoInteractions(auditService);
+    }
+
+    @Test
+    void uploadRejectsAMissingContentTypeSinceThereIsNothingToValidate() {
+        UserAccount actor = adminActor();
+        UploadSheetMusicRequest request = new UploadSheetMusicRequest("Title", null, 1L, false, null, null);
+
+        assertThatThrownBy(() -> sheetMusicService.upload(actor, request, "f", null, fakeFileContent()))
+                .isInstanceOf(InvalidFileTypeException.class);
+
+        verifyNoInteractions(fileStorage);
+    }
+
+    @Test
+    void uploadAcceptsEveryAllowListedContentType() {
+        UserAccount actor = adminActor();
+
+        for (String allowed : List.of("application/pdf", "image/png", "image/jpeg")) {
+            UploadSheetMusicRequest request = new UploadSheetMusicRequest("Title", null, 1L, false, null, null);
+            SheetMusic saved = sheetMusicService.upload(actor, request, "f", allowed, fakeFileContent());
+            assertThat(saved.getContentType()).isEqualTo(allowed);
+        }
+    }
+
     // ---- access scope application ----
 
     @Test

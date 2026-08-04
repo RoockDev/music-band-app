@@ -220,6 +220,31 @@ class SheetMusicDownloadControllerIntegrationTest extends IntegrationTestBase {
                 .isEqualTo(unknownResult.getResponse().getContentAsString().replace("999999", piece.getId().toString()));
     }
 
+    /** Defense-in-depth for the CRITICAL finding: the allow-list in
+     * {@link SheetMusicService#upload} now prevents a malformed content-type from ever being
+     * stored through the real API, but an old/edge-case row could still exist (predating the
+     * allow-list, or written directly like this test does). {@link SheetMusicController}
+     * must degrade gracefully to {@code application/octet-stream} instead of a 500
+     * ({@code InvalidMediaTypeException} previously propagated uncaught). */
+    @Test
+    void downloadOfAPieceWithAMalformedStoredContentTypeDegradesGracefullyInsteadOf500ing() throws Exception {
+        UserAccount musician = persistActiveMusician("musician-malformed-type-dl@example.com", "MusicianPass1!");
+        Collection collection = collectionRepository.saveAndFlush(new Collection("Malformed Type Collection", null, FIXED_NOW));
+        String storageKey = fileStorage.store(new java.io.ByteArrayInputStream("legacy bytes".getBytes()));
+        SheetMusic piece = sheetMusicRepository.saveAndFlush(new SheetMusic("Legacy Piece", "Composer", collection,
+                storageKey, "legacy.bin", "not-a-valid-media-type;;;", true, FIXED_NOW));
+
+        Cookie csrf = fetchCsrfCookie();
+        Cookie accessToken = loginAndGetAccessTokenCookie("musician-malformed-type-dl@example.com", "MusicianPass1!", csrf);
+
+        mockMvc.perform(get("/api/sheet-music/" + piece.getId() + "/file")
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue()))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                        .string("Content-Type", "application/octet-stream"));
+    }
+
     @Test
     void downloadOfAnInactivePieceReturnsNotFoundEvenWhenTheActorWouldOtherwiseBeAuthorized() throws Exception {
         UserAccount musician = persistActiveMusician("musician-inactive-dl@example.com", "MusicianPass1!");
