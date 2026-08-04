@@ -217,6 +217,38 @@ class SheetMusicControllerIntegrationTest extends IntegrationTestBase {
         }
     }
 
+    /** Reliability/resilience test-gap fix: every other multipart test sends {@code allScope}
+     * explicitly ({@code "true"}/{@code "false"}); the real bug this PR fixed (a primitive
+     * {@code boolean} rejecting a real HTML checkbox's "field entirely absent" submission with
+     * a 400) is only otherwise proven via {@link SheetMusicServiceTest}'s hand-constructed
+     * {@code UploadSheetMusicRequest}, which bypasses Spring's data binder entirely. This test
+     * goes through the real binder by never calling {@code .param("allScope", ...)} at all --
+     * the actual scenario an unchecked HTML checkbox produces. */
+    @Test
+    void uploadWithTheAllScopeParameterOmittedEntirelySucceedsAndTreatsItAsFalse() throws Exception {
+        UserAccount admin = persistActiveAdmin("admin-upload-noallscope@example.com", "AdminPass1!");
+        adminPermissionRepository.saveAndFlush(new AdminPermission(admin, Permission.MANAGE_SHEET_MUSIC));
+        Collection collection = collectionRepository.saveAndFlush(new Collection("Checkbox Omitted", null, FIXED_NOW));
+
+        Cookie csrf = fetchCsrfCookie();
+        Cookie accessToken = loginAndGetAccessTokenCookie("admin-upload-noallscope@example.com", "AdminPass1!", csrf);
+        MockMultipartFile file = new MockMultipartFile("file", "unchecked.pdf", "application/pdf", "bytes".getBytes());
+
+        mockMvc.perform(multipart("/api/sheet-music")
+                        .file(file)
+                        .param("title", "Unchecked Checkbox Upload")
+                        .param("collectionId", collection.getId().toString())
+                        // Deliberately no .param("allScope", ...) call at all -- an unchecked
+                        // HTML checkbox submits no field, never a literal "false".
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue()))
+                .andExpect(status().isCreated());
+
+        SheetMusic saved = sheetMusicRepository.findAll().stream()
+                .filter(sm -> sm.getTitle().equals("Unchecked Checkbox Upload")).findFirst().orElseThrow();
+        assertThat(saved.isAllScope()).isFalse();
+    }
+
     @Test
     void uploadWithAnUnknownCollectionIdReturnsNotFound() throws Exception {
         UserAccount admin = persistActiveAdmin("admin-upload-404@example.com", "AdminPass1!");
