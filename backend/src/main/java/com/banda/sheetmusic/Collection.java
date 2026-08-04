@@ -12,14 +12,14 @@ import java.time.Instant;
 
 /**
  * Section 6 (Sheet Music Collections/Folders): an admin-managed folder {@link SheetMusic}
- * pieces are organized into — every piece belongs to exactly one collection. No
- * {@code CollectionController} exists yet in this PR (not listed in its task scope);
- * collections are created directly via {@link CollectionRepository} for now (mirroring how
- * this PR's own tests persist one directly), the same way earlier PRs sometimes seeded
- * data straight through a repository ahead of a full CRUD surface. A follow-up PR is
- * expected to add full CRUD (create/rename/delete-with-reassign) mirroring
- * {@code GroupController}'s exact shape, including the "delete in-use collection" 409 guard
- * design decision #7 also names for collections.
+ * pieces are organized into — every piece belongs to exactly one collection.
+ * {@code CollectionController} exposes a minimal create-only surface (see
+ * {@link CollectionService}'s own Javadoc for why it's deliberately scoped down) so this PR's
+ * upload flow — which hard-requires an existing {@code collectionId} — is actually usable
+ * end-to-end rather than only reachable via tests seeding a collection directly through
+ * {@link CollectionRepository}. A follow-up PR is expected to add full CRUD (rename/
+ * delete-with-reassign) mirroring {@code GroupController}'s exact shape, including the
+ * "delete in-use collection" 409 guard design decision #7 also names for collections.
  */
 @Entity
 @Table(name = "collection")

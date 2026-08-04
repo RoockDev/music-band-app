@@ -80,6 +80,13 @@ public class SecurityConfig {
                         // covered by anyRequest().authenticated() below) for the same
                         // documentation clarity the other feature sections use.
                         .requestMatchers("/api/sheet-music/**").authenticated()
+                        // Section 6: collection management (currently create-only, see
+                        // CollectionController's own Javadoc) is admin-panel-only at this
+                        // coarse level, same as groups/users -- CollectionService
+                        // additionally requires the MANAGE_SHEET_MUSIC permission toggle
+                        // (Sec.2/Sec.10) independent of holding ADMIN, enforced in the
+                        // service layer per request.
+                        .requestMatchers("/api/collections/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .addFilterAfter(new CsrfCookieFilter(), BasicAuthenticationFilter.class)
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
