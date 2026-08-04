@@ -66,6 +66,11 @@ public class SecurityConfig {
                         // MANAGE_USERS permission toggle (Sec.2/Sec.10) independent of
                         // holding ADMIN, enforced in the service layer per request.
                         .requestMatchers("/api/users/**").hasRole("ADMIN")
+                        // Section 4: groups management is admin-panel-only at this coarse
+                        // level; GroupService additionally requires the specific
+                        // MANAGE_GROUPS permission toggle (Sec.2/Sec.10) independent of
+                        // holding ADMIN, enforced in the service layer per request.
+                        .requestMatchers("/api/groups/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .addFilterAfter(new CsrfCookieFilter(), BasicAuthenticationFilter.class)
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);

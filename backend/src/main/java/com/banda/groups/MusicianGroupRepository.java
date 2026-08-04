@@ -2,6 +2,8 @@ package com.banda.groups;
 
 import com.banda.users.UserAccount;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
@@ -14,7 +16,15 @@ public interface MusicianGroupRepository extends JpaRepository<MusicianGroup, Lo
      * guard (Section 4 "Delete in-use group" scenario) before attempting the delete. */
     boolean existsByGroup(Group group);
 
-    List<MusicianGroup> findByGroup(Group group);
+    /**
+     * Fetch-joins {@code musician} explicitly: {@link GroupService#listMembers} returns
+     * plain {@code UserAccount} entities out of its own {@code @Transactional(readOnly =
+     * true)} boundary, and {@link GroupController} only reads their fields afterward, while
+     * building the response DTO — a lazy ({@code FetchType.LAZY}) proxy would throw
+     * {@code LazyInitializationException} at that point, once the session is already closed.
+     */
+    @Query("SELECT mg FROM MusicianGroup mg JOIN FETCH mg.musician WHERE mg.group = :group")
+    List<MusicianGroup> findByGroup(@Param("group") Group group);
 
     List<MusicianGroup> findByMusician(UserAccount musician);
 
