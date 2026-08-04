@@ -56,6 +56,7 @@ class SheetMusicServiceTest {
     private PermissionService permissionService;
     private AuditService auditService;
     private FileStorage fileStorage;
+    private SheetMusicAccessService accessService;
     private SheetMusicService sheetMusicService;
 
     private Collection collection;
@@ -71,11 +72,12 @@ class SheetMusicServiceTest {
         permissionService = mock(PermissionService.class);
         auditService = mock(AuditService.class);
         fileStorage = mock(FileStorage.class);
+        accessService = mock(SheetMusicAccessService.class);
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
 
         sheetMusicService = new SheetMusicService(sheetMusicRepository, collectionRepository,
                 sheetGroupAccessRepository, sheetMusicianAccessRepository, userAccountRepository, groupRepository,
-                permissionService, auditService, fileStorage, clock);
+                permissionService, auditService, fileStorage, accessService, clock);
 
         collection = new Collection("Marches", null, NOW);
         when(collectionRepository.findById(1L)).thenReturn(Optional.of(collection));
@@ -232,6 +234,91 @@ class SheetMusicServiceTest {
                 .isInstanceOf(SheetMusicStorageException.class);
 
         verifyNoInteractions(sheetMusicRepository);
+        verifyNoInteractions(auditService);
+    }
+
+    // ---- download() — task 6.3, the IDOR-safe core deliverable ----
+
+    private SheetMusic persistedSheetMusic(Long id, boolean allScope) {
+        SheetMusic sheetMusic = new SheetMusic("Piece " + id, null, collection, "storage-key-" + id,
+                "piece.pdf", "application/pdf", allScope, NOW);
+        org.springframework.test.util.ReflectionTestUtils.setField(sheetMusic, "id", id);
+        return sheetMusic;
+    }
+
+    @Test
+    void downloadReturnsBytesContentTypeAndFilenameWhenAuthorizedAndWritesAnAuditRecord() throws IOException {
+        UserAccount actor = new UserAccount("musician@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, NOW);
+        SheetMusic piece = persistedSheetMusic(50L, true);
+        when(sheetMusicRepository.findById(50L)).thenReturn(Optional.of(piece));
+        when(accessService.canAccess(actor, piece)).thenReturn(true);
+        when(fileStorage.retrieve("storage-key-50")).thenReturn("real pdf bytes".getBytes());
+
+        SheetMusicService.DownloadResult result = sheetMusicService.download(actor, 50L);
+
+        assertThat(result.content()).isEqualTo("real pdf bytes".getBytes());
+        assertThat(result.contentType()).isEqualTo("application/pdf");
+        assertThat(result.filename()).isEqualTo("piece.pdf");
+        verify(auditService).record(eq(actor.getId()), eq("SHEET_MUSIC_DOWNLOADED"), eq("SheetMusic"), eq(50L));
+    }
+
+    @Test
+    void downloadOnAnUnknownSheetMusicThrowsSheetMusicNotFoundException() {
+        UserAccount actor = new UserAccount("musician@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, NOW);
+        when(sheetMusicRepository.findById(404L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> sheetMusicService.download(actor, 404L))
+                .isInstanceOf(SheetMusicNotFoundException.class);
+
+        verifyNoInteractions(fileStorage);
+        verifyNoInteractions(auditService);
+    }
+
+    /**
+     * The IDOR-block scenario (Sec.2/Sec.5): a piece that DOES exist but the actor cannot
+     * access must fail EXACTLY like a nonexistent id — same exception type, same message
+     * shape — never a distinct "forbidden" response that would leak the id's existence.
+     */
+    @Test
+    void downloadWhenAccessIsDeniedThrowsTheSameSheetMusicNotFoundExceptionAsAnUnknownId() {
+        UserAccount actor = new UserAccount("musician@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, NOW);
+        SheetMusic piece = persistedSheetMusic(60L, false);
+        when(sheetMusicRepository.findById(60L)).thenReturn(Optional.of(piece));
+        when(accessService.canAccess(actor, piece)).thenReturn(false);
+
+        assertThatThrownBy(() -> sheetMusicService.download(actor, 60L))
+                .isInstanceOf(SheetMusicNotFoundException.class)
+                .hasMessage(new SheetMusicNotFoundException(60L).getMessage());
+
+        verifyNoInteractions(fileStorage);
+        verifyNoInteractions(auditService);
+    }
+
+    @Test
+    void downloadOnAnInactiveSheetMusicThrowsSheetMusicNotFoundExceptionEvenIfAccessWouldOtherwiseBeGranted() {
+        UserAccount actor = new UserAccount("musician@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, NOW);
+        SheetMusic piece = persistedSheetMusic(70L, true);
+        org.springframework.test.util.ReflectionTestUtils.setField(piece, "active", false);
+        when(sheetMusicRepository.findById(70L)).thenReturn(Optional.of(piece));
+
+        assertThatThrownBy(() -> sheetMusicService.download(actor, 70L))
+                .isInstanceOf(SheetMusicNotFoundException.class);
+
+        verifyNoInteractions(accessService);
+        verifyNoInteractions(fileStorage);
+    }
+
+    @Test
+    void downloadWrapsAnIOExceptionFromFileStorageRetrieveIntoSheetMusicStorageException() throws IOException {
+        UserAccount actor = new UserAccount("musician@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, NOW);
+        SheetMusic piece = persistedSheetMusic(80L, true);
+        when(sheetMusicRepository.findById(80L)).thenReturn(Optional.of(piece));
+        when(accessService.canAccess(actor, piece)).thenReturn(true);
+        when(fileStorage.retrieve("storage-key-80")).thenThrow(new IOException("disk error"));
+
+        assertThatThrownBy(() -> sheetMusicService.download(actor, 80L))
+                .isInstanceOf(SheetMusicStorageException.class);
+
         verifyNoInteractions(auditService);
     }
 }

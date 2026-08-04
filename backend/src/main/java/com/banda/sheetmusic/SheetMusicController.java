@@ -4,11 +4,15 @@ import com.banda.sheetmusic.dto.SheetMusicResponse;
 import com.banda.sheetmusic.dto.UploadSheetMusicRequest;
 import com.banda.users.UserAccount;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -51,6 +55,27 @@ public class SheetMusicController {
         SheetMusic saved = sheetMusicService.upload(actor, request, file.getOriginalFilename(),
                 file.getContentType(), file.getInputStream());
         return ResponseEntity.status(HttpStatus.CREATED).body(SheetMusicResponse.from(saved));
+    }
+
+    /**
+     * Section 5's IDOR-safe download endpoint (task 6.3, the core deliverable of this PR):
+     * {@link SheetMusicService#download} throws the exact same 404
+     * ({@link SheetMusicNotFoundException}) whether the id doesn't exist or the actor simply
+     * cannot access it — this controller never sees or could leak the distinction, by
+     * construction. The whole file is loaded into memory (design doc: acceptable at this
+     * app's scale), never streamed live from a static path.
+     */
+    @GetMapping("/{id}/file")
+    public ResponseEntity<byte[]> downloadFile(@AuthenticationPrincipal UserAccount actor, @PathVariable Long id) {
+        SheetMusicService.DownloadResult result = sheetMusicService.download(actor, id);
+        MediaType mediaType = result.contentType() != null
+                ? MediaType.parseMediaType(result.contentType())
+                : MediaType.APPLICATION_OCTET_STREAM;
+        String filename = result.filename() != null ? result.filename() : "sheet-music-" + id;
+        return ResponseEntity.ok()
+                .contentType(mediaType)
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                .body(result.content());
     }
 
     @ExceptionHandler(CollectionNotFoundException.class)

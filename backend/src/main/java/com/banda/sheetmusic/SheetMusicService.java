@@ -47,6 +47,7 @@ public class SheetMusicService {
     private final PermissionService permissionService;
     private final AuditService auditService;
     private final FileStorage fileStorage;
+    private final SheetMusicAccessService accessService;
     private final Clock clock;
 
     public SheetMusicService(SheetMusicRepository sheetMusicRepository,
@@ -58,6 +59,7 @@ public class SheetMusicService {
                               PermissionService permissionService,
                               AuditService auditService,
                               FileStorage fileStorage,
+                              SheetMusicAccessService accessService,
                               Clock clock) {
         this.sheetMusicRepository = sheetMusicRepository;
         this.collectionRepository = collectionRepository;
@@ -68,6 +70,7 @@ public class SheetMusicService {
         this.permissionService = permissionService;
         this.auditService = auditService;
         this.fileStorage = fileStorage;
+        this.accessService = accessService;
         this.clock = clock;
     }
 
@@ -103,6 +106,46 @@ public class SheetMusicService {
         log.info("Sheet music uploaded: {}", saved.getId());
 
         return saved;
+    }
+
+    /**
+     * Section 5 IDOR-block scenario (Sec.2/Sec.5), the core deliverable of task 6.3.
+     * {@link SheetMusicNotFoundException} is thrown identically (same type, same message
+     * shape) whether {@code sheetMusicId} doesn't exist, is inactive, or exists but
+     * {@link SheetMusicAccessService#canAccess} denies it — a 404, never a 403, so an
+     * unauthorized caller can never distinguish "doesn't exist" from "exists but you can't
+     * have it" (design doc's "IDOR-safety" section). An inactive piece is checked BEFORE
+     * even calling {@code canAccess} — it's treated as gone, the same way this codebase
+     * treats a DEACTIVATED {@code UserAccount} at login, so {@code accessService} is never
+     * even consulted for it (see the "never touches accessService" assertion this behavior
+     * is tested against).
+     */
+    @Transactional(readOnly = true)
+    public DownloadResult download(UserAccount actor, Long sheetMusicId) {
+        SheetMusic sheetMusic = sheetMusicRepository.findById(sheetMusicId)
+                .filter(SheetMusic::isActive)
+                .orElseThrow(() -> new SheetMusicNotFoundException(sheetMusicId));
+
+        if (!accessService.canAccess(actor, sheetMusic)) {
+            throw new SheetMusicNotFoundException(sheetMusicId);
+        }
+
+        byte[] content;
+        try {
+            content = fileStorage.retrieve(sheetMusic.getStorageKey());
+        } catch (IOException e) {
+            throw new SheetMusicStorageException(e);
+        }
+
+        auditService.record(actor.getId(), "SHEET_MUSIC_DOWNLOADED", "SheetMusic", sheetMusicId);
+        log.info("Sheet music downloaded: {}", sheetMusicId);
+
+        return new DownloadResult(content, sheetMusic.getContentType(), sheetMusic.getOriginalFilename());
+    }
+
+    /** {@code content} is fully in-memory (design doc: "loading the whole file into memory
+     * for the response is acceptable" for this app's scale) rather than a live stream. */
+    public record DownloadResult(byte[] content, String contentType, String filename) {
     }
 
     private void applyAccessScope(SheetMusic sheetMusic, List<Long> groupIds, List<Long> musicianIds) {
