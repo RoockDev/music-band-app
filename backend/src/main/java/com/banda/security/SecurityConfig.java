@@ -87,6 +87,14 @@ public class SecurityConfig {
                         // (Sec.2/Sec.10) independent of holding ADMIN, enforced in the
                         // service layer per request.
                         .requestMatchers("/api/collections/**").hasRole("ADMIN")
+                        // Section 7: like sheet music (not like the admin-only groups/users/
+                        // collections panels), the internal calendar is reachable by both
+                        // MUSICIAN and ADMIN roles -- list()/get() authorize per-event via
+                        // EventAccessService#canAccess in the service layer, and
+                        // create/edit/cancel additionally require the MANAGE_EVENTS
+                        // permission toggle (Sec.2/Sec.10). Explicit here for the same
+                        // documentation clarity /api/sheet-music/** uses.
+                        .requestMatchers("/api/events/**").authenticated()
                         .anyRequest().authenticated())
                 .addFilterAfter(new CsrfCookieFilter(), BasicAuthenticationFilter.class)
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
