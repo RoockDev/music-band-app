@@ -1,10 +1,10 @@
 package com.banda.groups;
 
 import com.banda.groups.dto.CreateGroupRequest;
+import com.banda.groups.dto.GroupMemberResponse;
 import com.banda.groups.dto.GroupResponse;
 import com.banda.groups.dto.UpdateGroupRequest;
 import com.banda.users.UserAccount;
-import com.banda.users.dto.UserAccountResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -75,9 +75,12 @@ public class GroupController {
         return ResponseEntity.noContent().build();
     }
 
+    /** Deliberately returns {@link GroupMemberResponse} (id/email/role only), not the
+     * richer {@code UserAccountResponse} — see that DTO's own Javadoc for why reusing it
+     * here would leak {@code MANAGE_USERS}-domain PII to a {@code MANAGE_GROUPS}-only actor. */
     @GetMapping("/{id}/musicians")
-    public List<UserAccountResponse> listMembers(@AuthenticationPrincipal UserAccount actor, @PathVariable Long id) {
-        return groupService.listMembers(actor, id).stream().map(UserAccountResponse::from).toList();
+    public List<GroupMemberResponse> listMembers(@AuthenticationPrincipal UserAccount actor, @PathVariable Long id) {
+        return groupService.listMembers(actor, id).stream().map(GroupMemberResponse::from).toList();
     }
 
     @PostMapping("/{id}/musicians/{musicianId}")
