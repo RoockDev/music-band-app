@@ -24,6 +24,18 @@ spring:
     username: ${MAIL_USERNAME:}
     password: ${MAIL_PASSWORD:}
 
+  servlet:
+    multipart:
+      # Section 5 upload is whole-file-in-memory by design (FileStorage's own Javadoc:
+      # "acceptable at this app's scale", no true streaming) -- an unbounded upload would let
+      # a single request exhaust heap. 20MB comfortably covers a real scanned sheet-music PDF
+      # (a multi-page scan at a reasonable DPI is typically a few MB; 20MB leaves headroom for
+      # a dense/high-resolution scan without being large enough to be a practical DoS vector
+      # for this app's scale). max-request-size matches since a request carries exactly one
+      # file part today.
+      max-file-size: 20MB
+      max-request-size: 20MB
+
 app:
   jwt:
     # REQUIRED, no default. This is a live HMAC signing key — a hardcoded fallback here
@@ -41,3 +53,8 @@ app:
     # httpOnly+Secure+SameSite cookie flag (design decision #9). Override to false only
     # for plain-HTTP local dev without TLS (see README) — never in a real deployment.
     cookie-secure: ${APP_SECURITY_COOKIE_SECURE:true}
+  file-storage:
+    # Design decision #3: local disk on a persistent volume (decision #4), deliberately
+    # outside src/main/resources/static or any other classpath location Spring Boot
+    # auto-serves — never static-served, per Section 5's explicit requirement.
+    base-dir: ${APP_FILE_STORAGE_BASE_DIR:/data/files}

@@ -71,6 +71,22 @@ public class SecurityConfig {
                         // MANAGE_GROUPS permission toggle (Sec.2/Sec.10) independent of
                         // holding ADMIN, enforced in the service layer per request.
                         .requestMatchers("/api/groups/**").hasRole("ADMIN")
+                        // Section 5/6: unlike the admin-only panels above, sheet music is
+                        // reachable by both MUSICIAN and ADMIN roles — any authenticated
+                        // user may attempt a download, per-piece authorization is enforced
+                        // by SheetMusicAccessService#canAccess in the service layer, and
+                        // upload additionally requires the MANAGE_SHEET_MUSIC permission
+                        // toggle (Sec.2/Sec.10). Explicit here (though functionally already
+                        // covered by anyRequest().authenticated() below) for the same
+                        // documentation clarity the other feature sections use.
+                        .requestMatchers("/api/sheet-music/**").authenticated()
+                        // Section 6: collection management (currently create-only, see
+                        // CollectionController's own Javadoc) is admin-panel-only at this
+                        // coarse level, same as groups/users -- CollectionService
+                        // additionally requires the MANAGE_SHEET_MUSIC permission toggle
+                        // (Sec.2/Sec.10) independent of holding ADMIN, enforced in the
+                        // service layer per request.
+                        .requestMatchers("/api/collections/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .addFilterAfter(new CsrfCookieFilter(), BasicAuthenticationFilter.class)
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
