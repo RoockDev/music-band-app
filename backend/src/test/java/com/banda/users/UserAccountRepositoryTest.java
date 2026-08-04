@@ -40,6 +40,15 @@ class UserAccountRepositoryTest extends IntegrationTestBase {
     }
 
     @Test
+    void existsByEmailReflectsWhetherAnAccountWithThatEmailIsAlreadyPersisted() {
+        userAccountRepository.saveAndFlush(
+                new UserAccount("taken@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, Instant.now()));
+
+        assertThat(userAccountRepository.existsByEmail("taken@example.com")).isTrue();
+        assertThat(userAccountRepository.existsByEmail("free@example.com")).isFalse();
+    }
+
+    @Test
     void emailMustBeUnique() {
         Instant now = Instant.now();
         userAccountRepository.saveAndFlush(new UserAccount("dup@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, now));
