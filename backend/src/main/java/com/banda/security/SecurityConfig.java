@@ -61,6 +61,11 @@ public class SecurityConfig {
                         // per-action permission gate (Phase 3/RBAC) refines this later; for
                         // now the base ADMIN role is the gate, same as every other endpoint.
                         .requestMatchers("/api/audit/**").hasRole("ADMIN")
+                        // Section 3: user/musician management is admin-panel-only at this
+                        // coarse level; UserService additionally requires the specific
+                        // MANAGE_USERS permission toggle (Sec.2/Sec.10) independent of
+                        // holding ADMIN, enforced in the service layer per request.
+                        .requestMatchers("/api/users/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .addFilterAfter(new CsrfCookieFilter(), BasicAuthenticationFilter.class)
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
