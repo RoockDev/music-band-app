@@ -7,6 +7,7 @@ import com.banda.security.Permission;
 import com.banda.security.PermissionService;
 import com.banda.users.UserAccount;
 import com.banda.users.UserAccountRepository;
+import com.banda.users.UserRole;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -123,6 +124,17 @@ public class GroupService {
      * the TOCTOU backstop for a concurrent {@link #assignMusician} that lands between that
      * check and this method's own delete — the {@code musician_group.group_id} FK (no
      * cascade) is what actually rejects the delete in that race, not application code.
+     *
+     * <p><b>Note on the {@code REQUIRES_NEW} asymmetry with {@link #assignMusician}/
+     * {@link #unassignMusician}:</b> unlike those two, this method deliberately does NOT run
+     * its mutation in its own {@code REQUIRES_NEW} transaction, because {@code delete} is
+     * always the top-level transaction boundary today (called directly from
+     * {@link GroupController}, with no caller transaction to protect from being poisoned by a
+     * failed nested unit of work). If a future refactor ever calls {@code delete} from
+     * *within* another service's transaction, that assumption breaks and this method would
+     * need the same {@code REQUIRES_NEW} isolation {@link #assignMusician}/
+     * {@link #unassignMusician} already use, to avoid silently reintroducing the poisoning
+     * risk those two guard against.
      */
     public void delete(UserAccount actor, Long groupId) {
         permissionService.requirePermission(actor, Permission.MANAGE_GROUPS);
@@ -226,7 +238,21 @@ public class GroupService {
         return groupRepository.findById(groupId).orElseThrow(() -> new GroupNotFoundException(groupId));
     }
 
+    /**
+     * Resolves {@code musicianId} to a {@link UserAccount} AND validates its role is actually
+     * {@link UserRole#MUSICIAN} — without this check, an ADMIN account's id could be inserted
+     * into {@code musician_group} and would surface via {@link #listMembers}, despite this
+     * method's name and {@link MusicianNotFoundException} implying that validation already
+     * happened. A non-musician id is treated identically to a nonexistent one (404-style,
+     * {@link MusicianNotFoundException}): from {@code MANAGE_GROUPS}' perspective, a non-musician
+     * account isn't a valid group-member target either way.
+     */
     private UserAccount requireMusician(Long musicianId) {
-        return userAccountRepository.findById(musicianId).orElseThrow(() -> new MusicianNotFoundException(musicianId));
+        UserAccount account = userAccountRepository.findById(musicianId)
+                .orElseThrow(() -> new MusicianNotFoundException(musicianId));
+        if (account.getRole() != UserRole.MUSICIAN) {
+            throw new MusicianNotFoundException(musicianId);
+        }
+        return account;
     }
 }
