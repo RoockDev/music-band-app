@@ -1,5 +1,6 @@
 package com.banda.common;
 
+import com.banda.security.PermissionDeniedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
@@ -17,6 +18,12 @@ import java.util.Map;
  * exception class names/messages to the client. Note this only covers exceptions thrown
  * from controller/service code — it runs AFTER the servlet filter chain, so it does
  * NOT catch failures inside {@code JwtAuthFilter} (see that class for its own handling).
+ *
+ * <p>Also the single, shared translation point for {@link PermissionDeniedException}
+ * (Sec.2/Sec.10) so every gated controller across every future PR (groups, sheet music,
+ * events, ...) gets identical, generic-message handling without each duplicating it —
+ * {@link PermissionDeniedException}'s own Javadoc requires the specific missing
+ * {@code Permission} never be echoed back to the client, only logged server-side.
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -28,5 +35,11 @@ public class GlobalExceptionHandler {
         log.error("Database access failure", e);
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .body(Map.of("error", "Service temporarily unavailable"));
+    }
+
+    @ExceptionHandler(PermissionDeniedException.class)
+    public ResponseEntity<Map<String, String>> handlePermissionDenied(PermissionDeniedException e) {
+        log.warn("Permission denied: missing {}", e.getPermission());
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Forbidden"));
     }
 }
