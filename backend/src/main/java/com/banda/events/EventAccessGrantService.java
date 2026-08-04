@@ -42,20 +42,34 @@ public class EventAccessGrantService {
      * {@code null}/empty when {@code allScope} alone is enough, or when the event isn't
      * scoped to anyone yet. An unknown group/musician id throws
      * {@link GroupNotFoundException}/{@link MusicianNotFoundException}.
+     *
+     * <p><b>Duplicate ids are deduped, not rejected:</b> a caller sending e.g.
+     * {@code groupIds:[5,5]} ends up with a single grant row for group 5, not a
+     * {@code event_group_access}/{@code event_musician_access} unique-constraint violation
+     * surfacing as an uncaught {@link org.springframework.dao.DataIntegrityViolationException}
+     * (which {@code GlobalExceptionHandler} would otherwise map to a misleading 503). This
+     * mirrors the codebase's established "redundant caller data is a silent idempotent no-op,
+     * not a client error" convention ({@code GroupService#assignMusician}/{@code
+     * #unassignMusician}, {@code UserService#deactivate}) rather than introducing a new
+     * validation-exception type for what is, functionally, the exact same grant applied twice.
      */
     public void applyAccessScope(Event event, List<Long> groupIds, List<Long> musicianIds) {
         if (groupIds != null) {
-            for (Long groupId : groupIds) {
+            for (Long groupId : distinct(groupIds)) {
                 Group group = requireGroup(groupId);
                 eventGroupAccessRepository.saveAndFlush(new EventGroupAccess(event, group));
             }
         }
         if (musicianIds != null) {
-            for (Long musicianId : musicianIds) {
+            for (Long musicianId : distinct(musicianIds)) {
                 UserAccount musician = requireMusician(musicianId);
                 eventMusicianAccessRepository.saveAndFlush(new EventMusicianAccess(event, musician));
             }
         }
+    }
+
+    private static List<Long> distinct(List<Long> ids) {
+        return ids.stream().distinct().toList();
     }
 
     private Group requireGroup(Long groupId) {

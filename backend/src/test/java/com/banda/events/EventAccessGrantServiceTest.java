@@ -81,6 +81,25 @@ class EventAccessGrantServiceTest {
         verifyNoInteractions(eventGroupAccessRepository);
     }
 
+    /**
+     * Fix (WARNING — resilience+reliability): a duplicate group id in the same request used to
+     * hit the {@code event_group_access} unique constraint on the second identical insert,
+     * surfacing as an uncaught {@code DataIntegrityViolationException} mapped to a misleading
+     * 503 by {@code GlobalExceptionHandler}. Deduping up front means exactly one grant row (and
+     * one {@code saveAndFlush} call) per distinct group id, no matter how many times the caller
+     * repeats it.
+     */
+    @Test
+    void duplicateGroupIdsInTheSameRequestAreDedupedToASingleGrant() {
+        Group group = new Group("Brass Section", null, NOW);
+        ReflectionTestUtils.setField(group, "id", 5L);
+        when(groupRepository.findById(5L)).thenReturn(Optional.of(group));
+
+        accessGrantService.applyAccessScope(event, List.of(5L, 5L), null);
+
+        verify(eventGroupAccessRepository).saveAndFlush(any());
+    }
+
     // ---- individual musician access scope ----
 
     @Test
@@ -102,6 +121,19 @@ class EventAccessGrantServiceTest {
 
         assertThatThrownBy(() -> accessGrantService.applyAccessScope(event, null, List.of(999L)))
                 .isInstanceOf(MusicianNotFoundException.class);
+    }
+
+    /** Symmetric to {@link #duplicateGroupIdsInTheSameRequestAreDedupedToASingleGrant} for the
+     * {@code event_musician_access} unique constraint. */
+    @Test
+    void duplicateMusicianIdsInTheSameRequestAreDedupedToASingleGrant() {
+        UserAccount musician = new UserAccount("musician-dup@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, NOW);
+        ReflectionTestUtils.setField(musician, "id", 7L);
+        when(userAccountRepository.findById(7L)).thenReturn(Optional.of(musician));
+
+        accessGrantService.applyAccessScope(event, null, List.of(7L, 7L));
+
+        verify(eventMusicianAccessRepository).saveAndFlush(any());
     }
 
     @Test

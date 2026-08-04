@@ -165,6 +165,43 @@ class EventControllerIntegrationTest extends IntegrationTestBase {
                 .andExpect(status().isForbidden());
     }
 
+    /**
+     * Fix (WARNING — resilience+reliability): {@link EventAccessGrantService#applyAccessScope}
+     * used to hit the {@code event_group_access} unique constraint on a duplicate group id in
+     * the same request, surfacing as an uncaught {@code DataIntegrityViolationException} that
+     * {@code GlobalExceptionHandler} mapped to a misleading 503 — conflating a client input
+     * error with an infra outage. Proves the fix (dedup before persisting) through the real
+     * endpoint: the request must still succeed (201), and only ONE grant row must exist for
+     * the repeated group id.
+     */
+    @Test
+    void duplicateGroupIdsInCreateRequestNoLongerCauseAServiceUnavailableResponse() throws Exception {
+        UserAccount admin = persistActive("admin-dup-groupids@example.com", "AdminPass1!", UserRole.ADMIN);
+        adminPermissionRepository.saveAndFlush(new AdminPermission(admin, Permission.MANAGE_EVENTS));
+        Group group = groupRepository.saveAndFlush(new Group("Dup Ids Group", null, FIXED_NOW));
+
+        Cookie csrf = fetchCsrfCookie();
+        Cookie accessToken = loginAndGetAccessTokenCookie("admin-dup-groupids@example.com", "AdminPass1!", csrf);
+
+        // Before the fix, the second identical insert hit the event_group_access unique
+        // constraint and surfaced as an uncaught DataIntegrityViolationException -> 503,
+        // rolling back the whole create. The fix dedupes up front, so this must succeed.
+        mockMvc.perform(post("/api/events")
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue())
+                        .contentType("application/json")
+                        .content("{\"title\":\"Duplicate Group Ids\",\"startsAt\":\"2026-06-01T19:00:00Z\","
+                                + "\"isPublic\":false,\"allScope\":false,\"groupIds\":["
+                                + group.getId() + "," + group.getId() + "]}"))
+                .andExpect(status().isCreated());
+
+        Event created = eventRepository.findAll().stream()
+                .filter(e -> e.getTitle().equals("Duplicate Group Ids")).findFirst().orElseThrow();
+        assertThat(eventGroupAccessRepository.existsByEventAndGroupIn(created, List.of(group)))
+                .as("the (deduped) group grant must still have been applied")
+                .isTrue();
+    }
+
     // ---- internal calendar visibility (Sec.7: public/private/scoped) ----
 
     @Test
