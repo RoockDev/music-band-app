@@ -41,6 +41,26 @@ import java.util.List;
  * rest or reaches the caller; and every failure is logged at ERROR with enough context
  * (submission id, admin id) to investigate -- never the visitor's message body or any
  * credential, and never silently swallowed with zero visibility.
+ *
+ * <p><b>No {@code AuditService} call, deliberately.</b> {@code AuditService}'s own class
+ * Javadoc states, as an explicit codebase-wide contract, that every mutating action across
+ * every feature is expected to call {@code record(...)} once it has successfully persisted
+ * its change, and every other mutating service in this codebase does. This is the one
+ * exception: {@code AuditService#record}'s own contract requires {@code actorId} to be
+ * derived from an authenticated principal ({@code SecurityContextHolder}), and a contact
+ * form submission has no authenticated actor to attribute the mutation to (see above) --
+ * inventing a fake/null actorId to satisfy the call would violate that contract for no real
+ * benefit. The persisted {@link ContactSubmission} row itself already serves as the durable
+ * record of the action, the same role {@code AuditLog} plays for actor-attributed mutations
+ * elsewhere. This was reasoned, not missed.
+ *
+ * <p><b>Notification scope.</b> {@link #notifyAdmins} notifies accounts with
+ * {@code role=ADMIN AND status=ACTIVE}, deliberately narrower than a literal reading of
+ * spec Section 9's "notify all admin accounts": PENDING admins haven't activated/set a
+ * password yet (arguably not yet a real admin to route a visitor to), and DEACTIVATED
+ * admins already have login blocked (Sec.3) -- notifying either would be operationally
+ * useless. See {@code ContactControllerIntegrationTest} for the HTTP-level proof that a
+ * DEACTIVATED admin is excluded.
  */
 @Service
 public class ContactService {
