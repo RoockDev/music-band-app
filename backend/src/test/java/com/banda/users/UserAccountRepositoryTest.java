@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -46,6 +47,26 @@ class UserAccountRepositoryTest extends IntegrationTestBase {
 
         assertThat(userAccountRepository.existsByEmail("taken@example.com")).isTrue();
         assertThat(userAccountRepository.existsByEmail("free@example.com")).isFalse();
+    }
+
+    /** Section 9 (Contact Form): {@code ContactService} needs exactly this query to notify
+     * every currently-active admin -- pending (unactivated) and deactivated admins must be
+     * excluded, and a musician must never be included regardless of status. */
+    @Test
+    void findsOnlyActiveAdminAccountsByRoleAndStatus() {
+        Instant now = Instant.now();
+        UserAccount activeAdmin = userAccountRepository.saveAndFlush(
+                new UserAccount("active-admin@example.com", UserRole.ADMIN, UserStatus.ACTIVE, now));
+        userAccountRepository.saveAndFlush(
+                new UserAccount("pending-admin@example.com", UserRole.ADMIN, UserStatus.PENDING, now));
+        userAccountRepository.saveAndFlush(
+                new UserAccount("deactivated-admin@example.com", UserRole.ADMIN, UserStatus.DEACTIVATED, now));
+        userAccountRepository.saveAndFlush(
+                new UserAccount("active-musician@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, now));
+
+        List<UserAccount> found = userAccountRepository.findByRoleAndStatus(UserRole.ADMIN, UserStatus.ACTIVE);
+
+        assertThat(found).extracting(UserAccount::getEmail).containsExactly(activeAdmin.getEmail());
     }
 
     @Test
