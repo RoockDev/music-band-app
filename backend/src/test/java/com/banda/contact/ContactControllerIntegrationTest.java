@@ -99,6 +99,31 @@ class ContactControllerIntegrationTest extends IntegrationTestBase {
         verify(emailSender, never()).send(eq("contact-admin-deactivated@example.com"), anyString(), anyString());
     }
 
+    /** {@code UserAccountRepositoryTest} already proves the PENDING exclusion at the
+     * repository-query level in isolation; this proves it end-to-end through the real
+     * submit-and-notify HTTP flow, the same level {@code DEACTIVATED} is already proven at
+     * above. */
+    @Test
+    void submitDoesNotNotifyAPendingNotYetActivatedAdmin() throws Exception {
+        userAccountRepository.saveAndFlush(
+                new UserAccount("contact-admin-active@example.com", UserRole.ADMIN, UserStatus.ACTIVE, NOW));
+        userAccountRepository.saveAndFlush(
+                new UserAccount("contact-admin-pending@example.com", UserRole.ADMIN, UserStatus.PENDING, NOW));
+
+        Cookie csrf = fetchCsrfCookie();
+
+        mockMvc.perform(post("/api/contact")
+                        .cookie(csrf)
+                        .header("X-XSRF-TOKEN", csrf.getValue())
+                        .contentType("application/json")
+                        .content("{\"name\":\"Pending Admin Visitor\",\"email\":\"pending-admin-visitor@example.com\","
+                                + "\"message\":\"Interested in guitar lessons.\"}"))
+                .andExpect(status().isCreated());
+
+        verify(emailSender).send(eq("contact-admin-active@example.com"), anyString(), anyString());
+        verify(emailSender, never()).send(eq("contact-admin-pending@example.com"), anyString(), anyString());
+    }
+
     /** No CSRF cookie/header at all -- rejected by the CSRF filter itself before reaching the
      * (permitAll) endpoint, exactly the same shape {@code NewsControllerIntegrationTest}
      * proves for {@code /api/news}, and the same established pattern
