@@ -131,4 +131,77 @@ class ContactControllerIntegrationTest extends IntegrationTestBase {
         assertThat(contactSubmissionRepository.findAll().stream()
                 .anyMatch(s -> s.getName().equals("Bad Email Visitor"))).isFalse();
     }
+
+    @Test
+    void submitWithABlankNameIsRejectedWithBadRequestAndNothingIsPersisted() throws Exception {
+        Cookie csrf = fetchCsrfCookie();
+
+        mockMvc.perform(post("/api/contact")
+                        .cookie(csrf)
+                        .header("X-XSRF-TOKEN", csrf.getValue())
+                        .contentType("application/json")
+                        .content("{\"name\":\"\",\"email\":\"blank-name@example.com\",\"message\":\"Body.\"}"))
+                .andExpect(status().isBadRequest());
+
+        assertThat(contactSubmissionRepository.findAll().stream()
+                .anyMatch(s -> s.getEmail().equals("blank-name@example.com"))).isFalse();
+    }
+
+    @Test
+    void submitWithABlankMessageIsRejectedWithBadRequestAndNothingIsPersisted() throws Exception {
+        Cookie csrf = fetchCsrfCookie();
+
+        mockMvc.perform(post("/api/contact")
+                        .cookie(csrf)
+                        .header("X-XSRF-TOKEN", csrf.getValue())
+                        .contentType("application/json")
+                        .content("{\"name\":\"Blank Message Visitor\",\"email\":\"blank-message@example.com\","
+                                + "\"message\":\"\"}"))
+                .andExpect(status().isBadRequest());
+
+        assertThat(contactSubmissionRepository.findAll().stream()
+                .anyMatch(s -> s.getEmail().equals("blank-message@example.com"))).isFalse();
+    }
+
+    /** {@code SubmitContactFormRequest.name} is capped at 255 chars to match
+     * {@code ContactSubmission.name}'s explicit {@code @Column(length = 255)} -- without
+     * this, an oversized field passes bean validation and hits a raw DB-layer failure
+     * instead of a clean 400 (WARNING finding, Section 9 post-review). */
+    @Test
+    void submitWithAnOversizedNameIsRejectedWithBadRequestAndNothingIsPersisted() throws Exception {
+        Cookie csrf = fetchCsrfCookie();
+        String oversizedName = "a".repeat(256);
+
+        mockMvc.perform(post("/api/contact")
+                        .cookie(csrf)
+                        .header("X-XSRF-TOKEN", csrf.getValue())
+                        .contentType("application/json")
+                        .content("{\"name\":\"" + oversizedName + "\",\"email\":\"oversized-name@example.com\","
+                                + "\"message\":\"Body.\"}"))
+                .andExpect(status().isBadRequest());
+
+        assertThat(contactSubmissionRepository.findAll().stream()
+                .anyMatch(s -> s.getEmail().equals("oversized-name@example.com"))).isFalse();
+    }
+
+    /** Same as above for {@code message}, capped at 5000 chars -- generous for a genuine
+     * contact-form message while bounding both DB storage and (since every ACTIVE admin
+     * gets a full copy in their notification email) per-request outbound email size on this
+     * unauthenticated, unrate-limited endpoint. */
+    @Test
+    void submitWithAnOversizedMessageIsRejectedWithBadRequestAndNothingIsPersisted() throws Exception {
+        Cookie csrf = fetchCsrfCookie();
+        String oversizedMessage = "a".repeat(5001);
+
+        mockMvc.perform(post("/api/contact")
+                        .cookie(csrf)
+                        .header("X-XSRF-TOKEN", csrf.getValue())
+                        .contentType("application/json")
+                        .content("{\"name\":\"Oversized Message Visitor\",\"email\":\"oversized-message@example.com\","
+                                + "\"message\":\"" + oversizedMessage + "\"}"))
+                .andExpect(status().isBadRequest());
+
+        assertThat(contactSubmissionRepository.findAll().stream()
+                .anyMatch(s -> s.getEmail().equals("oversized-message@example.com"))).isFalse();
+    }
 }
