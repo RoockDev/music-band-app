@@ -22,10 +22,14 @@ import java.util.List;
 /**
  * Section 1 (Authentication) use cases. Deliberately does NOT expose a way to *create*
  * activation/reset tokens in this PR — issuing the initial activation token is the
- * admin-account-creation flow (Phase 4, a later PR); a self-service "forgot password"
- * request endpoint would additionally require wiring an EmailSender, which is likewise
- * out of scope for this PR's assigned tasks (activation/login/reset/logout completion
- * only). Both are natural, small follow-ups once their respective phases land.
+ * admin-account-creation flow (Phase 4, a later PR, now landed). A self-service
+ * "forgot password" request endpoint (one that itself creates and emails a RESET token,
+ * rather than an admin doing it) remains out of scope of this backend delivery entirely.
+ * {@code com.banda.common.EmailSender} now exists (added by the Section 9/Contact Form
+ * PR, the last backend phase), so wiring one is no longer blocked by a missing
+ * dependency — it is a DELIBERATE, still-deferred follow-up, a small and natural one to
+ * pick up whenever desired, not a gap left by an unfinished "next phase" (there isn't
+ * one in this backend delivery).
  *
  * <p>Logging is intentionally minimal and never interpolates a raw password, raw token,
  * or JWT value (Section 12).

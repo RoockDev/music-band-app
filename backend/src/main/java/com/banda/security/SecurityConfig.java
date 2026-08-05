@@ -114,6 +114,17 @@ public class SecurityConfig {
                         .requestMatchers("/api/albums/**").hasRole("ADMIN")
                         .requestMatchers("/api/videos/**").hasRole("ADMIN")
                         .requestMatchers("/api/courses/**").hasRole("ADMIN")
+                        // Section 9 (Contact Form): the FIRST unauthenticated, public-facing
+                        // WRITE in this backend -- every permitAll() rule above (including
+                        // /api/auth/activate|login|password-reset/complete) is either
+                        // read-only or itself gated by a single-use token. A website visitor
+                        // has no JWT cookie at all. CSRF protection is deliberately NOT
+                        // exempted here -- same established pattern as the unauthenticated
+                        // /api/auth POSTs above: the visitor must first GET /api/auth/csrf
+                        // for a CSRF cookie/header pair before this POST is accepted. See
+                        // ContactController/ContactService's own Javadoc for the rest of the
+                        // unauthenticated-write reasoning (no Permission gate, no actor).
+                        .requestMatchers(HttpMethod.POST, "/api/contact").permitAll()
                         .anyRequest().authenticated())
                 .addFilterAfter(new CsrfCookieFilter(), BasicAuthenticationFilter.class)
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);

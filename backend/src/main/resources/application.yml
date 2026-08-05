@@ -19,10 +19,30 @@ spring:
         format_sql: true
 
   mail:
-    host: ${MAIL_HOST:localhost}
-    port: ${MAIL_PORT:1025}
+    # REQUIRED, no default -- see app.jwt.secret's comment below for the established
+    # fail-fast pattern this mirrors. Unlike app.mail.from (a non-secret, cosmetic sender
+    # address), host/port silently carrying a local-dev value (localhost:1025, Mailpit's
+    # port) into a prod deployment that forgot to override them would NOT fail startup:
+    # POST /api/contact would keep returning 201 forever while every admin notification
+    # silently failed against an unreachable host, with zero operator-visible signal. Local
+    # dev/tests supply this explicitly (see README, application-test.yml), same as JWT_SECRET.
+    host: ${MAIL_HOST}
+    port: ${MAIL_PORT}
     username: ${MAIL_USERNAME:}
     password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          # ContactService#notifyAdmins calls EmailSender#send synchronously, per admin, on
+          # the Tomcat request thread -- POST /api/contact is unauthenticated and has no
+          # rate limiting. Without an explicit bound here, a stalled/unresponsive SMTP host
+          # can hang a request thread indefinitely; a handful of concurrent submissions
+          # against a hung SMTP target could exhaust the whole worker pool (a full outage,
+          # not just a degraded contact form). 5s per phase bounds the worst case to
+          # N admins x ~15s per request instead of an indefinite hang.
+          connectiontimeout: 5000
+          timeout: 5000
+          writetimeout: 5000
 
   servlet:
     multipart:
@@ -58,3 +78,11 @@ app:
     # outside src/main/resources/static or any other classpath location Spring Boot
     # auto-serves — never static-served, per Section 5's explicit requirement.
     base-dir: ${APP_FILE_STORAGE_BASE_DIR:/data/files}
+  mail:
+    # REQUIRED, no default -- unlike spring.mail.host/port above, this value isn't a secret,
+    # but the SAME silent-blackhole risk applies: a prod deployment that forgets to set it
+    # would boot fine, and every outbound admin notification would silently carry a
+    # local-dev sender address instead of failing loudly. Fail fast instead, same pattern as
+    # JWT_SECRET and spring.mail.host/port. Local dev/tests supply this explicitly (see
+    # README, application-test.yml).
+    from: ${MAIL_FROM}

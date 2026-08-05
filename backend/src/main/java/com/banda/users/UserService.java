@@ -42,11 +42,15 @@ import java.util.Objects;
  * <p><b>Activation token delivery:</b> {@link #create} generates and persists the
  * account's initial ACTIVATION {@link PasswordToken} (the hook {@code AuthService}'s own
  * Javadoc names this PR as responsible for), the same raw/hash split established by
- * {@code AuthService}'s reset flow. No {@code EmailSender} exists yet in this codebase
- * (design decision #5 is not implemented by any PR up to and including this one), so the
- * raw token is returned to the calling admin in the create response instead of being
- * emailed — a deliberate, documented interim step, not an oversight. It is never logged
- * and never included in {@code AuditService} details.
+ * {@code AuthService}'s reset flow. {@code com.banda.common.EmailSender} now exists (added
+ * by the Section 9/Contact Form PR), but wiring it into {@link #create} to actually email
+ * the activation token is a DELIBERATE, still-deferred follow-up, not a gap left by a
+ * missing dependency: the raw token is returned to the calling admin in the create response
+ * instead of being emailed. This is an intentional scope boundary of the current backend
+ * delivery (there is no further backend phase after Contact Form), not an oversight — a
+ * future maintainer should treat this as a small, natural follow-up to pick up whenever
+ * desired, not a "next phase" to go looking for. It is never logged and never included in
+ * {@code AuditService} details.
  */
 @Service
 @Transactional
