@@ -10,12 +10,19 @@ Status: backend scaffolding done (empty skeleton + one smoke test), no feature l
 
 ## Running the backend locally
 
-`JWT_SECRET` is **required** — there is no built-in default, so the app fails fast at startup
-if it's unset. Generate a local one before running:
+`JWT_SECRET`, `MAIL_HOST`, `MAIL_PORT`, and `MAIL_FROM` are all **required** — none has a
+built-in default, so the app fails fast at startup if any is unset. (`MAIL_HOST`/`MAIL_PORT`/
+`MAIL_FROM` used to have local-dev-friendly defaults, but that meant a prod deployment that
+forgot to set them would boot fine and silently blackhole every admin contact-form
+notification against an unreachable `localhost:1025` — see `application.yml` for the full
+rationale.) Generate/set them before running:
 
 ```
 export JWT_SECRET=$(openssl rand -base64 32)
-docker compose up postgres
+export MAIL_HOST=localhost
+export MAIL_PORT=1025
+export MAIL_FROM=no-reply@banda.local
+docker compose up postgres mailpit
 mvn -f backend/pom.xml spring-boot:run
 ```
 

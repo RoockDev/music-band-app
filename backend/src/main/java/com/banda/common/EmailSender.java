@@ -10,10 +10,14 @@ package com.banda.common;
  */
 public interface EmailSender {
 
-    /** Sends a plain-text email. Implementations MAY throw an unchecked exception on
-     * failure (e.g. {@link org.springframework.mail.MailException}); callers that must not
-     * let a notification failure block their own primary operation are responsible for
-     * catching and logging it themselves -- see {@code ContactService#notifyAdmins} for the
-     * established pattern. */
+    /** Sends a plain-text email, synchronously/blocking the calling thread until the send
+     * either succeeds or fails (see {@code spring.mail.properties.mail.smtp.*} timeouts in
+     * {@code application.yml}, which bound how long that block can last). Implementations
+     * MUST throw an unchecked exception on failure (e.g. {@link
+     * org.springframework.mail.MailException}) and MUST NEVER silently swallow one --
+     * callers that must not let a notification failure block their own primary operation
+     * are responsible for catching and logging it themselves -- see
+     * {@code ContactService#notifyAdmins} for the established pattern, which depends on this
+     * contract to detect and isolate a failed send. */
     void send(String to, String subject, String body);
 }

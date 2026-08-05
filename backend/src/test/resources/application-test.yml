@@ -44,3 +44,7 @@ app:
     # value only applies if some future test loads the "test" profile without going through
     # that base class.
     base-dir: ${java.io.tmpdir}/banda-test-files
+  mail:
+    # Supplied directly here, same as app.jwt.secret above -- production config no longer
+    # has a default (see application.yml), so tests must supply this explicitly.
+    from: test-no-reply@banda.local
