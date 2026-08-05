@@ -77,7 +77,7 @@ public class PublicContentService {
             throw new PhotoStorageException(e);
         }
 
-        return new PhotoFile(content, photo.getContentType());
+        return new PhotoFile(content, photo.getContentType(), photo.getStorageKey());
     }
 
     public List<VideoLink> listVideos() {
@@ -95,7 +95,9 @@ public class PublicContentService {
     }
 
     /** {@code content} is fully in-memory, mirroring
-     * {@code SheetMusicService.DownloadResult}'s identical tradeoff. */
-    public record PhotoFile(byte[] content, String contentType) {
+     * {@code SheetMusicService.DownloadResult}'s identical tradeoff. {@code storageKey} is
+     * exposed only so {@link PublicContentController} can derive an opaque {@code ETag} from
+     * it — it is never rendered back to the client as its own field. */
+    public record PhotoFile(byte[] content, String contentType, String storageKey) {
     }
 }

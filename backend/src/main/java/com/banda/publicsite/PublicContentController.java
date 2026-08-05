@@ -4,6 +4,7 @@ import com.banda.publicsite.dto.AlbumResponse;
 import com.banda.publicsite.dto.CourseAnnouncementResponse;
 import com.banda.publicsite.dto.NewsPostResponse;
 import com.banda.publicsite.dto.VideoLinkResponse;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.InvalidMediaTypeException;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 
@@ -58,9 +60,13 @@ public class PublicContentController {
                 .toList();
     }
 
-    /** Public, unauthenticated photo bytes — mirrors
-     * {@code SheetMusicController#downloadFile}'s content-type resolution/fallback, but with
-     * no access check and an {@code inline} (not {@code attachment}) disposition since this is
+    /** This is the first zero-authentication endpoint in the backend (unlike sheet music's
+     * equivalent, there is no login barrier discouraging repeat/abusive requests), so it sets
+     * {@code Cache-Control} (and an {@code ETag} derived from the immutable, content-addressed
+     * {@code storageKey}) explicitly, letting browsers/CDNs/proxies absorb repeat requests
+     * instead of hitting disk I/O on every single one. Otherwise mirrors
+     * {@code SheetMusicController#downloadFile}'s content-type resolution/fallback, but with no
+     * access check and an {@code inline} (not {@code attachment}) disposition since this is
      * meant to be displayed directly in a gallery view, not downloaded as a file. */
     @GetMapping("/gallery/photos/{id}/file")
     public ResponseEntity<byte[]> photoFile(@PathVariable Long id) {
@@ -69,6 +75,8 @@ public class PublicContentController {
         return ResponseEntity.ok()
                 .contentType(mediaType)
                 .header(HttpHeaders.CONTENT_DISPOSITION, "inline")
+                .cacheControl(CacheControl.maxAge(Duration.ofHours(1)).cachePublic())
+                .eTag("\"" + result.storageKey() + "\"")
                 .body(result.content());
     }
 

@@ -16,6 +16,7 @@ import java.time.LocalDate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -98,6 +99,22 @@ class PublicContentControllerIntegrationTest extends IntegrationTestBase {
                 .andReturn();
 
         assertThat(result.getResponse().getContentAsByteArray()).containsExactly(5, 6, 7, 8);
+    }
+
+    /** Risk fix: this is the first zero-authentication endpoint in the backend, so it must
+     * carry an explicit {@code Cache-Control} header letting browsers/CDNs/proxies absorb
+     * repeat requests instead of hitting disk I/O on every single anonymous request. */
+    @Test
+    void photoFileResponseCarriesACachingHeaderForAnonymousReuse() throws Exception {
+        Album album = albumRepository.saveAndFlush(new Album("Cacheable Album", null, NOW));
+        String storageKey = fileStorage.store(new ByteArrayInputStream(new byte[] {1, 2, 3}));
+        Photo photo = photoRepository.saveAndFlush(new Photo(album, null, storageKey, "image/png", NOW));
+
+        mockMvc.perform(get("/api/public/gallery/photos/" + photo.getId() + "/file"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("max-age=3600")))
+                .andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("public")))
+                .andExpect(header().exists("ETag"));
     }
 
     @Test
