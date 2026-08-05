@@ -95,6 +95,25 @@ public class SecurityConfig {
                         // permission toggle (Sec.2/Sec.10). Explicit here for the same
                         // documentation clarity /api/sheet-music/** uses.
                         .requestMatchers("/api/events/**").authenticated()
+                        // Section 8: the FIRST unauthenticated, public-facing surface in this
+                        // backend -- every other rule above requires at least a valid JWT
+                        // cookie. News/gallery/videos/courses reads AND the public events
+                        // listing (deliberately decoupled from /api/events/** -- see
+                        // com.banda.publicsite.PublicEventService's own Javadoc) all live
+                        // under this single permitAll() prefix so the entire unauthenticated
+                        // attack surface is visible at a glance from this one rule.
+                        .requestMatchers("/api/public/**").permitAll()
+                        // Section 8 admin panel surfaces (create-only, see each *Service's own
+                        // Javadoc): admin-only at this coarse level, same shape as
+                        // groups/users/collections -- each service additionally requires the
+                        // MANAGE_CONTENT permission toggle (Sec.2/Sec.10) independent of
+                        // holding ADMIN, enforced in the service layer per request. These are
+                        // DIFFERENT URL prefixes from their public read-only counterparts
+                        // above, never overlapping paths.
+                        .requestMatchers("/api/news/**").hasRole("ADMIN")
+                        .requestMatchers("/api/albums/**").hasRole("ADMIN")
+                        .requestMatchers("/api/videos/**").hasRole("ADMIN")
+                        .requestMatchers("/api/courses/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .addFilterAfter(new CsrfCookieFilter(), BasicAuthenticationFilter.class)
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
