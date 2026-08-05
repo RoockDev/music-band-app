@@ -128,4 +128,32 @@ class VideoLinkControllerIntegrationTest extends IntegrationTestBase {
 
         assertThat(videoLinkRepository.findAll().stream().anyMatch(v -> v.getTitle().equals("Blocked"))).isFalse();
     }
+
+    @Test
+    void createByAMusicianIsForbidden() throws Exception {
+        persistActive("musician-video-create@example.com", "MusicianPass1!", UserRole.MUSICIAN);
+
+        Cookie csrf = fetchCsrfCookie();
+        Cookie accessToken = loginAndGetAccessTokenCookie("musician-video-create@example.com", "MusicianPass1!", csrf);
+
+        mockMvc.perform(post("/api/videos")
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue())
+                        .contentType("application/json")
+                        .content("{\"title\":\"Musician Attempt\",\"url\":\"https://youtube.com/watch?v=musician\"}"))
+                .andExpect(status().isForbidden());
+    }
+
+    /** No CSRF cookie/header at all -- the CSRF filter itself rejects this before the request
+     * ever reaches authentication (403, not 401), matching {@code SecurityConfig}'s filter
+     * ordering. */
+    @Test
+    void createByAnUnauthenticatedVisitorWithNoCsrfTokenIsForbidden() throws Exception {
+        mockMvc.perform(post("/api/videos")
+                        .contentType("application/json")
+                        .content("{\"title\":\"Anon Attempt\",\"url\":\"https://youtube.com/watch?v=anon\"}"))
+                .andExpect(status().isForbidden());
+
+        assertThat(videoLinkRepository.findAll().stream().anyMatch(v -> v.getTitle().equals("Anon Attempt"))).isFalse();
+    }
 }

@@ -140,6 +140,37 @@ class CourseAnnouncementControllerIntegrationTest extends IntegrationTestBase {
     }
 
     @Test
+    void createByAMusicianIsForbidden() throws Exception {
+        persistActive("musician-course-create@example.com", "MusicianPass1!", UserRole.MUSICIAN);
+
+        Cookie csrf = fetchCsrfCookie();
+        Cookie accessToken = loginAndGetAccessTokenCookie("musician-course-create@example.com", "MusicianPass1!", csrf);
+
+        mockMvc.perform(post("/api/courses")
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue())
+                        .contentType("application/json")
+                        .content("{\"title\":\"Musician Attempt\",\"startDate\":\"2026-09-01\",\"price\":50.00,"
+                                + "\"instrument\":\"Piano\",\"minimumAge\":6}"))
+                .andExpect(status().isForbidden());
+    }
+
+    /** No CSRF cookie/header at all -- the CSRF filter itself rejects this before the request
+     * ever reaches authentication (403, not 401), matching {@code SecurityConfig}'s filter
+     * ordering. */
+    @Test
+    void createByAnUnauthenticatedVisitorWithNoCsrfTokenIsForbidden() throws Exception {
+        mockMvc.perform(post("/api/courses")
+                        .contentType("application/json")
+                        .content("{\"title\":\"Anon Attempt\",\"startDate\":\"2026-09-01\",\"price\":50.00,"
+                                + "\"instrument\":\"Piano\",\"minimumAge\":6}"))
+                .andExpect(status().isForbidden());
+
+        assertThat(courseAnnouncementRepository.findAll().stream()
+                .anyMatch(c -> c.getTitle().equals("Anon Attempt"))).isFalse();
+    }
+
+    @Test
     void createWithAMissingRequiredFieldIsRejectedWithBadRequest() throws Exception {
         UserAccount admin = persistActive("admin-course-invalid@example.com", "AdminPass1!", UserRole.ADMIN);
         adminPermissionRepository.saveAndFlush(new AdminPermission(admin, Permission.MANAGE_CONTENT));

@@ -84,6 +84,33 @@ class PublicContentControllerIntegrationTest extends IntegrationTestBase {
                         .value("Second photo"));
     }
 
+    /** Reliability fix: the single-album case only proves grouping happens at all — this
+     * proves it happens CORRECTLY across multiple distinct albums simultaneously, with no
+     * cross-album leakage, at the real HTTP level (the mocked-service-level test only ever
+     * exercised one album's worth of interleaved photos). */
+    @Test
+    void galleryGroupsPhotosUnderTheCorrectAlbumWhenMultipleAlbumsExistSimultaneously() throws Exception {
+        Album albumOne = albumRepository.saveAndFlush(new Album("First Public Album", null, NOW));
+        Album albumTwo = albumRepository.saveAndFlush(new Album("Second Public Album", null, NOW));
+        photoRepository.saveAndFlush(new Photo(albumOne, "Album one, photo one", "key-a1", "image/png", NOW));
+        photoRepository.saveAndFlush(new Photo(albumOne, "Album one, photo two", "key-a2", "image/png", NOW));
+        photoRepository.saveAndFlush(new Photo(albumTwo, "Album two, photo one", "key-b1", "image/png", NOW));
+        photoRepository.saveAndFlush(new Photo(albumTwo, "Album two, photo two", "key-b2", "image/png", NOW));
+
+        mockMvc.perform(get("/api/public/gallery"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.name == 'First Public Album')].photos[0].caption")
+                        .value("Album one, photo one"))
+                .andExpect(jsonPath("$[?(@.name == 'First Public Album')].photos[1].caption")
+                        .value("Album one, photo two"))
+                .andExpect(jsonPath("$[?(@.name == 'First Public Album')].photos[2]").doesNotExist())
+                .andExpect(jsonPath("$[?(@.name == 'Second Public Album')].photos[0].caption")
+                        .value("Album two, photo one"))
+                .andExpect(jsonPath("$[?(@.name == 'Second Public Album')].photos[1].caption")
+                        .value("Album two, photo two"))
+                .andExpect(jsonPath("$[?(@.name == 'Second Public Album')].photos[2]").doesNotExist());
+    }
+
     /** Public, unauthenticated photo bytes: mirrors the opaque-storage-key contract, but
      * reachable with no login at all. */
     @Test

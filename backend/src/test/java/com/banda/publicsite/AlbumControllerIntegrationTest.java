@@ -141,6 +141,34 @@ class AlbumControllerIntegrationTest extends IntegrationTestBase {
         assertThat(albumRepository.findAll().stream().anyMatch(a -> a.getName().equals("Blocked Album"))).isFalse();
     }
 
+    @Test
+    void createAlbumByAMusicianIsForbidden() throws Exception {
+        persistActive("musician-album-create@example.com", "MusicianPass1!", UserRole.MUSICIAN);
+
+        Cookie csrf = fetchCsrfCookie();
+        Cookie accessToken = loginAndGetAccessTokenCookie("musician-album-create@example.com", "MusicianPass1!", csrf);
+
+        mockMvc.perform(post("/api/albums")
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue())
+                        .contentType("application/json")
+                        .content("{\"name\":\"Musician Attempt\"}"))
+                .andExpect(status().isForbidden());
+    }
+
+    /** No CSRF cookie/header at all -- the CSRF filter itself rejects this before the request
+     * ever reaches authentication (403, not 401), matching {@code SecurityConfig}'s filter
+     * ordering. */
+    @Test
+    void createAlbumByAnUnauthenticatedVisitorWithNoCsrfTokenIsForbidden() throws Exception {
+        mockMvc.perform(post("/api/albums")
+                        .contentType("application/json")
+                        .content("{\"name\":\"Anon Attempt\"}"))
+                .andExpect(status().isForbidden());
+
+        assertThat(albumRepository.findAll().stream().anyMatch(a -> a.getName().equals("Anon Attempt"))).isFalse();
+    }
+
     /** Core deliverable: proves {@code FileStorage} is genuinely reused (real bytes written to
      * the isolated test file-storage dir and read back), not a separate mechanism. */
     @Test
