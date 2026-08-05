@@ -12,6 +12,7 @@ import com.banda.users.UserAccount;
 import com.banda.users.UserAccountRepository;
 import com.banda.users.UserRole;
 import com.banda.users.UserStatus;
+import com.jayway.jsonpath.JsonPath;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -99,6 +100,16 @@ class SheetMusicControllerIntegrationTest extends IntegrationTestBase {
         return result.getResponse().getCookie(SecurityConstants.ACCESS_TOKEN_COOKIE);
     }
 
+    /** Collision-proof: reads the persisted row's id directly from the create response body
+     * instead of locating it by a literal title in the shared Testcontainers Postgres table,
+     * which other {@code IntegrationTestBase}-extending test classes can also write rows into
+     * for the same entity type. Every create endpoint already returns the persisted {@code id},
+     * so this needs no naming convention to remember. */
+    private Long extractId(MvcResult result) throws Exception {
+        Number id = JsonPath.read(result.getResponse().getContentAsString(), "$.id");
+        return id.longValue();
+    }
+
     @Test
     void uploadByAnAdminHoldingManageSheetMusicPermissionSucceedsPersistsStorageKeyAndWritesAnAuditRecord() throws Exception {
         UserAccount admin = persistActiveAdmin("admin-upload@example.com", "AdminPass1!");
@@ -123,8 +134,8 @@ class SheetMusicControllerIntegrationTest extends IntegrationTestBase {
         assertThat(result.getResponse().getContentAsString()).contains("Radetzky March");
         assertThat(result.getResponse().getContentAsString()).doesNotContain("storageKey");
 
-        SheetMusic saved = sheetMusicRepository.findAll().stream()
-                .filter(sm -> sm.getTitle().equals("Radetzky March")).findFirst().orElseThrow();
+        Long createdId = extractId(result);
+        SheetMusic saved = sheetMusicRepository.findById(createdId).orElseThrow();
         assertThat(saved.getStorageKey()).isNotBlank();
         assertThat(saved.getStorageKey()).doesNotContain("radetzky.pdf");
 
@@ -234,7 +245,7 @@ class SheetMusicControllerIntegrationTest extends IntegrationTestBase {
         Cookie accessToken = loginAndGetAccessTokenCookie("admin-upload-noallscope@example.com", "AdminPass1!", csrf);
         MockMultipartFile file = new MockMultipartFile("file", "unchecked.pdf", "application/pdf", "bytes".getBytes());
 
-        mockMvc.perform(multipart("/api/sheet-music")
+        MvcResult result = mockMvc.perform(multipart("/api/sheet-music")
                         .file(file)
                         .param("title", "Unchecked Checkbox Upload")
                         .param("collectionId", collection.getId().toString())
@@ -242,10 +253,11 @@ class SheetMusicControllerIntegrationTest extends IntegrationTestBase {
                         // HTML checkbox submits no field, never a literal "false".
                         .cookie(csrf, accessToken)
                         .header("X-XSRF-TOKEN", csrf.getValue()))
-                .andExpect(status().isCreated());
+                .andExpect(status().isCreated())
+                .andReturn();
 
-        SheetMusic saved = sheetMusicRepository.findAll().stream()
-                .filter(sm -> sm.getTitle().equals("Unchecked Checkbox Upload")).findFirst().orElseThrow();
+        Long createdId = extractId(result);
+        SheetMusic saved = sheetMusicRepository.findById(createdId).orElseThrow();
         assertThat(saved.isAllScope()).isFalse();
     }
 
@@ -302,17 +314,18 @@ class SheetMusicControllerIntegrationTest extends IntegrationTestBase {
         Cookie accessToken = loginAndGetAccessTokenCookie("admin-static-bypass@example.com", "AdminPass1!", csrf);
         MockMultipartFile file = new MockMultipartFile("file", "secret.pdf", "application/pdf", "secret bytes".getBytes());
 
-        mockMvc.perform(multipart("/api/sheet-music")
+        MvcResult result = mockMvc.perform(multipart("/api/sheet-music")
                         .file(file)
                         .param("title", "Bypass Attempt")
                         .param("collectionId", collection.getId().toString())
                         .param("allScope", "false")
                         .cookie(csrf, accessToken)
                         .header("X-XSRF-TOKEN", csrf.getValue()))
-                .andExpect(status().isCreated());
+                .andExpect(status().isCreated())
+                .andReturn();
 
-        SheetMusic saved = sheetMusicRepository.findAll().stream()
-                .filter(sm -> sm.getTitle().equals("Bypass Attempt")).findFirst().orElseThrow();
+        Long createdId = extractId(result);
+        SheetMusic saved = sheetMusicRepository.findById(createdId).orElseThrow();
 
         mockMvc.perform(get("/" + saved.getStorageKey())
                         .cookie(csrf, accessToken)

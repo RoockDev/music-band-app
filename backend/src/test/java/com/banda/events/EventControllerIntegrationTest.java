@@ -15,6 +15,7 @@ import com.banda.users.UserAccount;
 import com.banda.users.UserAccountRepository;
 import com.banda.users.UserRole;
 import com.banda.users.UserStatus;
+import com.jayway.jsonpath.JsonPath;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -101,6 +102,16 @@ class EventControllerIntegrationTest extends IntegrationTestBase {
         return result.getResponse().getCookie(SecurityConstants.ACCESS_TOKEN_COOKIE);
     }
 
+    /** Collision-proof: reads the persisted row's id directly from the create response body
+     * instead of locating it by a literal title in the shared Testcontainers Postgres table,
+     * which other {@code IntegrationTestBase}-extending test classes can also write rows into
+     * for the same entity type. Every create endpoint already returns the persisted {@code id},
+     * so this needs no naming convention to remember. */
+    private Long extractId(MvcResult result) throws Exception {
+        Number id = JsonPath.read(result.getResponse().getContentAsString(), "$.id");
+        return id.longValue();
+    }
+
     // ---- create() ----
 
     @Test
@@ -121,8 +132,8 @@ class EventControllerIntegrationTest extends IntegrationTestBase {
                 .andReturn();
 
         assertThat(result.getResponse().getContentAsString()).contains("Spring Concert");
-        Event created = eventRepository.findAll().stream()
-                .filter(e -> e.getTitle().equals("Spring Concert")).findFirst().orElseThrow();
+        Long createdId = extractId(result);
+        Event created = eventRepository.findById(createdId).orElseThrow();
         assertThat(created.getStatus()).isEqualTo(EventStatus.SCHEDULED);
 
         List<AuditLog> history = auditLogRepository.findByEntityTypeAndEntityIdOrderByTimestampDescIdDesc(
@@ -186,17 +197,18 @@ class EventControllerIntegrationTest extends IntegrationTestBase {
         // Before the fix, the second identical insert hit the event_group_access unique
         // constraint and surfaced as an uncaught DataIntegrityViolationException -> 503,
         // rolling back the whole create. The fix dedupes up front, so this must succeed.
-        mockMvc.perform(post("/api/events")
+        MvcResult result = mockMvc.perform(post("/api/events")
                         .cookie(csrf, accessToken)
                         .header("X-XSRF-TOKEN", csrf.getValue())
                         .contentType("application/json")
                         .content("{\"title\":\"Duplicate Group Ids\",\"startsAt\":\"2026-06-01T19:00:00Z\","
                                 + "\"isPublic\":false,\"allScope\":false,\"groupIds\":["
                                 + group.getId() + "," + group.getId() + "]}"))
-                .andExpect(status().isCreated());
+                .andExpect(status().isCreated())
+                .andReturn();
 
-        Event created = eventRepository.findAll().stream()
-                .filter(e -> e.getTitle().equals("Duplicate Group Ids")).findFirst().orElseThrow();
+        Long createdId = extractId(result);
+        Event created = eventRepository.findById(createdId).orElseThrow();
         assertThat(eventGroupAccessRepository.existsByEventAndGroupIn(created, List.of(group)))
                 .as("the (deduped) group grant must still have been applied")
                 .isTrue();
@@ -340,12 +352,11 @@ class EventControllerIntegrationTest extends IntegrationTestBase {
                                 + "\"isPublic\":false,\"allScope\":false,\"musicianIds\":[" + scopedMusician.getId() + "]}"))
                 .andExpect(status().isCreated())
                 .andReturn();
-        Event created = eventRepository.findAll().stream()
-                .filter(e -> e.getTitle().equals("One-on-One Coaching")).findFirst().orElseThrow();
+        Long createdId = extractId(createResult);
 
         Cookie scopedCsrf = fetchCsrfCookie();
         Cookie scopedToken = loginAndGetAccessTokenCookie("musician-individually-scoped@example.com", "MusicianPass1!", scopedCsrf);
-        mockMvc.perform(get("/api/events/" + created.getId())
+        mockMvc.perform(get("/api/events/" + createdId)
                         .cookie(scopedCsrf, scopedToken)
                         .header("X-XSRF-TOKEN", scopedCsrf.getValue()))
                 .andExpect(status().isOk())
@@ -353,7 +364,7 @@ class EventControllerIntegrationTest extends IntegrationTestBase {
 
         Cookie unscopedCsrf = fetchCsrfCookie();
         Cookie unscopedToken = loginAndGetAccessTokenCookie("musician-not-scoped@example.com", "MusicianPass1!", unscopedCsrf);
-        mockMvc.perform(get("/api/events/" + created.getId())
+        mockMvc.perform(get("/api/events/" + createdId)
                         .cookie(unscopedCsrf, unscopedToken)
                         .header("X-XSRF-TOKEN", unscopedCsrf.getValue()))
                 .andExpect(status().isNotFound());

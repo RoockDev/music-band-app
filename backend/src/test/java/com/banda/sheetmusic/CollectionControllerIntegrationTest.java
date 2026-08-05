@@ -11,6 +11,7 @@ import com.banda.users.UserAccount;
 import com.banda.users.UserAccountRepository;
 import com.banda.users.UserRole;
 import com.banda.users.UserStatus;
+import com.jayway.jsonpath.JsonPath;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -86,6 +87,16 @@ class CollectionControllerIntegrationTest extends IntegrationTestBase {
         return result.getResponse().getCookie(SecurityConstants.ACCESS_TOKEN_COOKIE);
     }
 
+    /** Collision-proof: reads the persisted row's id directly from the create response body
+     * instead of locating it by a literal name in the shared Testcontainers Postgres table,
+     * which other {@code IntegrationTestBase}-extending test classes can also write rows into
+     * for the same entity type. Every create endpoint already returns the persisted {@code id},
+     * so this needs no naming convention to remember. */
+    private Long extractId(MvcResult result) throws Exception {
+        Number id = JsonPath.read(result.getResponse().getContentAsString(), "$.id");
+        return id.longValue();
+    }
+
     @Test
     void createByAnAdminHoldingManageSheetMusicPermissionSucceedsAndWritesAnAuditRecord() throws Exception {
         UserAccount admin = persistActiveAdmin("admin-collection-create@example.com", "AdminPass1!");
@@ -103,11 +114,10 @@ class CollectionControllerIntegrationTest extends IntegrationTestBase {
                 .andReturn();
 
         assertThat(result.getResponse().getContentAsString()).contains("Marches");
-        Collection created = collectionRepository.findAll().stream()
-                .filter(c -> c.getName().equals("Marches")).findFirst().orElseThrow();
+        Long createdId = extractId(result);
 
         List<AuditLog> history = auditLogRepository.findByEntityTypeAndEntityIdOrderByTimestampDescIdDesc(
-                "Collection", created.getId());
+                "Collection", createdId);
         assertThat(history).hasSize(1);
         assertThat(history.get(0).getAction()).isEqualTo("COLLECTION_CREATED");
         assertThat(history.get(0).getActorId()).isEqualTo(admin.getId());
