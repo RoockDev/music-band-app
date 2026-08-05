@@ -28,6 +28,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -93,6 +94,31 @@ class ContactServiceTest {
         assertThat(captor.getValue().getMessage()).isEqualTo("Hello there.");
         assertThat(captor.getValue().getSubmittedAt()).isEqualTo(NOW);
         assertThat(saved.getName()).isEqualTo("Visitor Name");
+        // Zero admins to notify -- confirms notifyAdmins doesn't attempt any send at all,
+        // not just that no failure was observed.
+        verifyNoInteractions(emailSender);
+    }
+
+    @Test
+    void submitLogsAWarningWhenThereAreNoActiveAdminsToNotify() {
+        when(userAccountRepository.findByRoleAndStatus(UserRole.ADMIN, UserStatus.ACTIVE)).thenReturn(List.of());
+
+        Logger logger = (Logger) org.slf4j.LoggerFactory.getLogger(ContactService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+
+        try {
+            ContactSubmission saved = contactService.submit(
+                    new SubmitContactFormRequest("Visitor Name", "visitor@example.com", "Hello there."));
+
+            boolean warningLogged = appender.list.stream()
+                    .anyMatch(event -> event.getLevel() == Level.WARN
+                            && event.getFormattedMessage().contains("submissionId=" + saved.getId()));
+            assertThat(warningLogged).isTrue();
+        } finally {
+            logger.detachAppender(appender);
+        }
     }
 
     @Test

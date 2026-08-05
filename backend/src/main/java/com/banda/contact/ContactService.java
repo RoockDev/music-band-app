@@ -96,6 +96,11 @@ public class ContactService {
     private void notifyAdmins(ContactSubmission submission) {
         try {
             List<UserAccount> admins = userAccountRepository.findByRoleAndStatus(UserRole.ADMIN, UserStatus.ACTIVE);
+            if (admins.isEmpty()) {
+                log.warn("Contact form submission has no ACTIVE admins to notify: submissionId={}",
+                        submission.getId());
+                return;
+            }
             for (UserAccount admin : admins) {
                 try {
                     emailSender.send(admin.getEmail(), NOTIFICATION_SUBJECT, notificationBody(submission));
