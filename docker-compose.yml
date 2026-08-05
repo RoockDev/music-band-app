@@ -10,5 +10,15 @@ services:
     volumes:
       - banda_postgres_data:/var/lib/postgresql/data
 
+  # Design decision #5: local SMTP-catching dev tool the backend's app.mail.* defaults
+  # (MAIL_HOST=localhost, MAIL_PORT=1025) already point at -- lets EmailSender-sent mail
+  # (contact form admin notifications, and eventually activation/reset links) be inspected
+  # at http://localhost:8025 without a real SMTP provider or credentials in local dev.
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
 volumes:
   banda_postgres_data:
