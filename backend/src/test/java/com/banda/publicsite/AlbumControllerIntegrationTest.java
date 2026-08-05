@@ -11,6 +11,7 @@ import com.banda.users.UserAccount;
 import com.banda.users.UserAccountRepository;
 import com.banda.users.UserRole;
 import com.banda.users.UserStatus;
+import com.jayway.jsonpath.JsonPath;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -86,6 +87,17 @@ class AlbumControllerIntegrationTest extends IntegrationTestBase {
         return result.getResponse().getCookie(SecurityConstants.ACCESS_TOKEN_COOKIE);
     }
 
+    /** Collision-proof: reads the persisted row's id directly from the create response body
+     * instead of locating it by a literal name/caption in the shared Testcontainers Postgres
+     * table, which other {@code IntegrationTestBase}-extending test classes can also write rows
+     * into for the same entity type (see the 4th-confirmed-instance fixture-name-collision bug
+     * this closes). Every create endpoint already returns the persisted {@code id}, so this
+     * needs no naming convention to remember. */
+    private Long extractId(MvcResult result) throws Exception {
+        Number id = JsonPath.read(result.getResponse().getContentAsString(), "$.id");
+        return id.longValue();
+    }
+
     @Test
     void createAlbumByAnAdminHoldingManageContentPermissionSucceedsAndWritesAnAuditRecord() throws Exception {
         UserAccount admin = persistActive("admin-album-create@example.com", "AdminPass1!", UserRole.ADMIN);
@@ -94,7 +106,7 @@ class AlbumControllerIntegrationTest extends IntegrationTestBase {
         Cookie csrf = fetchCsrfCookie();
         Cookie accessToken = loginAndGetAccessTokenCookie("admin-album-create@example.com", "AdminPass1!", csrf);
 
-        mockMvc.perform(post("/api/albums")
+        MvcResult result = mockMvc.perform(post("/api/albums")
                         .cookie(csrf, accessToken)
                         .header("X-XSRF-TOKEN", csrf.getValue())
                         .contentType("application/json")
@@ -102,12 +114,12 @@ class AlbumControllerIntegrationTest extends IntegrationTestBase {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.name").value("Summer Tour"))
                 .andExpect(jsonPath("$.photos").isArray())
-                .andExpect(jsonPath("$.photos").isEmpty());
+                .andExpect(jsonPath("$.photos").isEmpty())
+                .andReturn();
 
-        Album created = albumRepository.findAll().stream()
-                .filter(a -> a.getName().equals("Summer Tour")).findFirst().orElseThrow();
+        Long createdId = extractId(result);
         List<AuditLog> history = auditLogRepository.findByEntityTypeAndEntityIdOrderByTimestampDescIdDesc(
-                "Album", created.getId());
+                "Album", createdId);
         assertThat(history).hasSize(1);
         assertThat(history.get(0).getAction()).isEqualTo("ALBUM_CREATED");
     }
@@ -151,13 +163,13 @@ class AlbumControllerIntegrationTest extends IntegrationTestBase {
                 .andExpect(jsonPath("$.caption").value("On stage"))
                 .andReturn();
 
-        Photo saved = photoRepository.findAll().stream()
-                .filter(p -> "On stage".equals(p.getCaption())).findFirst().orElseThrow();
+        Long photoId = extractId(result);
+        Photo saved = photoRepository.findById(photoId).orElseThrow();
         assertThat(saved.getStorageKey()).isNotBlank();
         assertThat(saved.getContentType()).isEqualTo("image/jpeg");
 
         List<AuditLog> history = auditLogRepository.findByEntityTypeAndEntityIdOrderByTimestampDescIdDesc(
-                "Photo", saved.getId());
+                "Photo", photoId);
         assertThat(history).hasSize(1);
         assertThat(history.get(0).getAction()).isEqualTo("PHOTO_UPLOADED");
         assertThat(result.getResponse().getContentAsString()).doesNotContain(saved.getStorageKey());

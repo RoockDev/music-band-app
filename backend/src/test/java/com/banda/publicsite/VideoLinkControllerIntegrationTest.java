@@ -11,6 +11,7 @@ import com.banda.users.UserAccount;
 import com.banda.users.UserAccountRepository;
 import com.banda.users.UserRole;
 import com.banda.users.UserStatus;
+import com.jayway.jsonpath.JsonPath;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -75,6 +76,17 @@ class VideoLinkControllerIntegrationTest extends IntegrationTestBase {
         return result.getResponse().getCookie(SecurityConstants.ACCESS_TOKEN_COOKIE);
     }
 
+    /** Collision-proof: reads the persisted row's id directly from the create response body
+     * instead of locating it by a literal title in the shared Testcontainers Postgres table,
+     * which other {@code IntegrationTestBase}-extending test classes can also write rows into
+     * for the same entity type (see the 4th-confirmed-instance fixture-name-collision bug this
+     * closes). Every create endpoint already returns the persisted {@code id}, so this needs no
+     * naming convention to remember. */
+    private Long extractId(MvcResult result) throws Exception {
+        Number id = JsonPath.read(result.getResponse().getContentAsString(), "$.id");
+        return id.longValue();
+    }
+
     @Test
     void createByAnAdminHoldingManageContentPermissionSucceedsAndWritesAnAuditRecord() throws Exception {
         UserAccount admin = persistActive("admin-video-create@example.com", "AdminPass1!", UserRole.ADMIN);
@@ -92,11 +104,10 @@ class VideoLinkControllerIntegrationTest extends IntegrationTestBase {
                 .andReturn();
 
         assertThat(result.getResponse().getContentAsString()).contains("Rehearsal Clip");
-        VideoLink created = videoLinkRepository.findAll().stream()
-                .filter(v -> v.getTitle().equals("Rehearsal Clip")).findFirst().orElseThrow();
+        Long createdId = extractId(result);
 
         List<AuditLog> history = auditLogRepository.findByEntityTypeAndEntityIdOrderByTimestampDescIdDesc(
-                "VideoLink", created.getId());
+                "VideoLink", createdId);
         assertThat(history).hasSize(1);
         assertThat(history.get(0).getAction()).isEqualTo("VIDEO_LINK_CREATED");
     }

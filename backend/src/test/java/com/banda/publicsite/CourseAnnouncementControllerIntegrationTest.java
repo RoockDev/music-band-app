@@ -11,6 +11,7 @@ import com.banda.users.UserAccount;
 import com.banda.users.UserAccountRepository;
 import com.banda.users.UserRole;
 import com.banda.users.UserStatus;
+import com.jayway.jsonpath.JsonPath;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -77,6 +78,17 @@ class CourseAnnouncementControllerIntegrationTest extends IntegrationTestBase {
         return result.getResponse().getCookie(SecurityConstants.ACCESS_TOKEN_COOKIE);
     }
 
+    /** Collision-proof: reads the persisted row's id directly from the create response body
+     * instead of locating it by a literal title in the shared Testcontainers Postgres table,
+     * which other {@code IntegrationTestBase}-extending test classes can also write rows into
+     * for the same entity type (see the 4th-confirmed-instance fixture-name-collision bug this
+     * closes). Every create endpoint already returns the persisted {@code id}, so this needs no
+     * naming convention to remember. */
+    private Long extractId(MvcResult result) throws Exception {
+        Number id = JsonPath.read(result.getResponse().getContentAsString(), "$.id");
+        return id.longValue();
+    }
+
     @Test
     void createPersistsEveryStructuredFieldAndWritesAnAuditRecord() throws Exception {
         UserAccount admin = persistActive("admin-course-create@example.com", "AdminPass1!", UserRole.ADMIN);
@@ -85,7 +97,7 @@ class CourseAnnouncementControllerIntegrationTest extends IntegrationTestBase {
         Cookie csrf = fetchCsrfCookie();
         Cookie accessToken = loginAndGetAccessTokenCookie("admin-course-create@example.com", "AdminPass1!", csrf);
 
-        mockMvc.perform(post("/api/courses")
+        MvcResult result = mockMvc.perform(post("/api/courses")
                         .cookie(csrf, accessToken)
                         .header("X-XSRF-TOKEN", csrf.getValue())
                         .contentType("application/json")
@@ -98,12 +110,12 @@ class CourseAnnouncementControllerIntegrationTest extends IntegrationTestBase {
                 .andExpect(jsonPath("$.endDate").value("2026-12-15"))
                 .andExpect(jsonPath("$.price").value(120.00))
                 .andExpect(jsonPath("$.instrument").value("Violin"))
-                .andExpect(jsonPath("$.minimumAge").value(8));
+                .andExpect(jsonPath("$.minimumAge").value(8))
+                .andReturn();
 
-        CourseAnnouncement created = courseAnnouncementRepository.findAll().stream()
-                .filter(c -> c.getTitle().equals("Beginner Violin")).findFirst().orElseThrow();
+        Long createdId = extractId(result);
         List<AuditLog> history = auditLogRepository.findByEntityTypeAndEntityIdOrderByTimestampDescIdDesc(
-                "CourseAnnouncement", created.getId());
+                "CourseAnnouncement", createdId);
         assertThat(history).hasSize(1);
         assertThat(history.get(0).getAction()).isEqualTo("COURSE_ANNOUNCEMENT_CREATED");
     }

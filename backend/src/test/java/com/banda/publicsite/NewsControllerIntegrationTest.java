@@ -11,6 +11,7 @@ import com.banda.users.UserAccount;
 import com.banda.users.UserAccountRepository;
 import com.banda.users.UserRole;
 import com.banda.users.UserStatus;
+import com.jayway.jsonpath.JsonPath;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -78,6 +79,17 @@ class NewsControllerIntegrationTest extends IntegrationTestBase {
         return result.getResponse().getCookie(SecurityConstants.ACCESS_TOKEN_COOKIE);
     }
 
+    /** Collision-proof: reads the persisted row's id directly from the create response body
+     * instead of locating it by a literal title in the shared Testcontainers Postgres table,
+     * which other {@code IntegrationTestBase}-extending test classes can also write rows into
+     * for the same entity type (see the 4th-confirmed-instance fixture-name-collision bug this
+     * closes). Every create endpoint already returns the persisted {@code id}, so this needs no
+     * naming convention to remember. */
+    private Long extractId(MvcResult result) throws Exception {
+        Number id = JsonPath.read(result.getResponse().getContentAsString(), "$.id");
+        return id.longValue();
+    }
+
     @Test
     void createByAnAdminHoldingManageContentPermissionSucceedsAndWritesAnAuditRecord() throws Exception {
         UserAccount admin = persistActive("admin-news-create@example.com", "AdminPass1!", UserRole.ADMIN);
@@ -95,11 +107,10 @@ class NewsControllerIntegrationTest extends IntegrationTestBase {
                 .andReturn();
 
         assertThat(result.getResponse().getContentAsString()).contains("Spring Concert Recap");
-        NewsPost created = newsPostRepository.findAll().stream()
-                .filter(n -> n.getTitle().equals("Spring Concert Recap")).findFirst().orElseThrow();
+        Long createdId = extractId(result);
 
         List<AuditLog> history = auditLogRepository.findByEntityTypeAndEntityIdOrderByTimestampDescIdDesc(
-                "NewsPost", created.getId());
+                "NewsPost", createdId);
         assertThat(history).hasSize(1);
         assertThat(history.get(0).getAction()).isEqualTo("NEWS_POST_CREATED");
     }
