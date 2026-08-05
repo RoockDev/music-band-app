@@ -1,0 +1,1653 @@
+{
+  "info": {
+    "_postman_id": "64ca0fb5-3070-4de6-9212-9607509bf7e6",
+    "name": "Music Band App",
+    "description": "# Music Band App -- API Collection\n\nManual test collection for every endpoint in the Spring Boot backend. Built for clicking\nthrough in Postman, not for a developer audience -- read this description once before you\nstart.\n\n## How auth works here (read this first)\n\nThis API does **not** use Bearer tokens. It uses two cookies plus a CSRF header:\n\n1. **CSRF (double-submit cookie).** `GET /api/auth/csrf` makes the server set an\n   `XSRF-TOKEN` cookie that JavaScript (and Postman) CAN read. Every state-changing request\n   (POST/PUT/DELETE) must echo that cookie's value back as an `X-XSRF-TOKEN` header, or the\n   server rejects it with 403 before your request even reaches application code. You do not\n   have to do this by hand: this collection's **collection-level pre-request script**\n   automatically reads the `XSRF-TOKEN` cookie from Postman's cookie jar and injects the\n   `X-XSRF-TOKEN` header on every mutating request for you. You only need to have run\n   \"Auth > Get CSRF Token\" at least once in the current session.\n2. **Session (JWT-in-httpOnly-cookie).** `POST /api/auth/login` sets an `ACCESS_TOKEN`\n   cookie carrying the actual JWT, marked `httpOnly` (JavaScript can never read it) and\n   `Secure` (HTTPS only, unless the backend explicitly disables that for local HTTP dev --\n   see the environment file's notes). Postman's cookie jar stores and automatically resends\n   httpOnly cookies on later requests to the same host, exactly like a real browser -- you\n   will simply never see its value anywhere in Postman's UI, by design. That is not a bug in\n   this collection.\n3. **Logout** invalidates the session server-side by bumping the account's `tokenVersion`,\n   not just by deleting the cookie -- any JWT issued before logout stops working immediately.\n\n## Recommended run order\n\n1. **Auth** folder, in order: \"Get CSRF Token\" then \"Login\". Do this first, every session.\n2. **Public Site** and **Contact** need no login at all -- try these any time.\n3. **Admin: Users / Audit / Groups / Sheet Music / Events / Public Content** all need an\n   ADMIN account, logged in, AND the specific permission toggle for that feature area (see\n   each folder's own description) -- see \"First-time setup\" below, this is not automatic.\n\n## First-time setup (READ THIS -- there is no signup, and no seed data)\n\nThis backend has **no public signup and no `data.sql`/seed mechanism** (confirmed by reading\nthe actual source: no seed file exists anywhere in the repo, and the README documents no\nbootstrap admin). You must create your first ADMIN account directly in Postgres:\n\n```sql\n-- Password hash below is a BCrypt hash (Spring's BCryptPasswordEncoder, the default cost\n-- factor 10) of the plaintext password \"ChangeMe123!\" -- generate your own with e.g.\n-- `python3 -c \"import bcrypt; print(bcrypt.hashpw(b'ChangeMe123!', bcrypt.gensalt()).decode())\"`\n-- (pip install bcrypt first) if you want a different password. Match whatever you put here\n-- to the adminPassword value in the environment file.\nINSERT INTO user_account\n    (email, password_hash, role, status, token_version, minor, consent_on_file,\n     created_at, updated_at, version)\nVALUES\n    ('admin@example.com',\n     '$2a$10$REPLACE_WITH_A_REAL_BCRYPT_HASH',\n     'ADMIN', 'ACTIVE', 0, false, true, now(), now(), 0);\n```\n\n**Second, and easy to miss:** holding the `ADMIN` role is never enough on its own. Every\nadmin-panel write additionally requires a specific `Permission` toggle\n(`MANAGE_USERS`, `MANAGE_ADMIN_ROLES`, `MANAGE_GROUPS`, `MANAGE_SHEET_MUSIC`,\n`MANAGE_EVENTS`, `MANAGE_CONTENT`), checked in the service layer independently of the role.\nAs of this backend version **there is no HTTP endpoint that grants these** (confirmed by\nreading `PermissionService` directly -- `grant()`/`revoke()` are plain Java methods with \"no\ncontroller exists yet\" in their own Javadoc). Grant yourself every toggle by hand too:\n\n```sql\nINSERT INTO admin_permission (admin_id, permission)\nSELECT id, unnest(ARRAY['MANAGE_USERS','MANAGE_ADMIN_ROLES','MANAGE_GROUPS',\n                         'MANAGE_SHEET_MUSIC','MANAGE_EVENTS','MANAGE_CONTENT'])\nFROM user_account WHERE email = 'admin@example.com';\n```\n\nWithout this second step, logging in will succeed but almost every admin request in this\ncollection will fail with 403 Forbidden -- that is expected given the current state of the\nAPI, not a bug in this collection.\n\n## Everything else\n\n- Folders below are ordered roughly public -> privileged: Auth, Public Site, Contact, then\n  the ADMIN-only feature folders.\n- \"Create\" requests that other requests depend on (Create Group, Create User, Create Event,\n  etc.) have a **test script** that automatically saves the new id into a collection\n  variable (e.g. `{{groupId}}`) so later requests in the same folder work without you\n  copy-pasting anything, as long as you run requests top-to-bottom.\n- Multipart upload requests (sheet music, album photos) need you to manually pick a real\n  file in Postman's body editor -- that part cannot be pre-filled in a shared JSON file.\n",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "noauth"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Auto-inject the CSRF header for every state-changing request.",
+          "//",
+          "// This API uses Spring Security's double-submit cookie CSRF pattern: the",
+          "// XSRF-TOKEN cookie (set by GET /api/auth/csrf, and refreshed by the server on",
+          "// every response after that) must be echoed back as the X-XSRF-TOKEN header on",
+          "// every POST/PUT/PATCH/DELETE, or the server rejects the request with 403 before",
+          "// it reaches application code. Doing this by hand for every request would be the",
+          "// single most annoying part of testing this API manually, so it's automated here",
+          "// once, at the collection level, instead of duplicated into every request.",
+          "const mutatingMethods = ['POST', 'PUT', 'PATCH', 'DELETE'];",
+          "",
+          "if (mutatingMethods.includes(pm.request.method)) {",
+          "    const xsrfCookie = pm.cookies.get('XSRF-TOKEN');",
+          "    if (xsrfCookie) {",
+          "        pm.request.headers.upsert({ key: 'X-XSRF-TOKEN', value: xsrfCookie });",
+          "    } else {",
+          "        console.warn(",
+          "            '[music-band-app] No XSRF-TOKEN cookie found yet. Run \"Auth > 1. Get CSRF Token\" ' +",
+          "            'at least once in this session before sending mutating requests.'",
+          "        );",
+          "    }",
+          "}"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "loggedInEmail",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "loggedInRole",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "musicianId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "activationToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "musicianActivationToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "resetToken",
+      "value": "",
+      "type": "string",
+      "description": "No HTTP endpoint issues these today -- must be obtained manually from the password_token table for testing."
+    },
+    {
+      "key": "groupId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "auditEntityType",
+      "value": "Group",
+      "type": "string"
+    },
+    {
+      "key": "collectionId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "sheetMusicId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "eventId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "albumId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "photoId",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "description": "CSRF bootstrap + login/activate/reset/logout. Run 'Get CSRF Token' then 'Login' first, every session -- almost nothing else in this collection works without both.",
+      "item": [
+        {
+          "name": "1. Get CSRF Token",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/csrf",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "csrf"
+              ]
+            },
+            "description": "Run this FIRST, before anything else in this collection. It has no body and returns 204 No Content -- its only real job is to make the server set a fresh XSRF-TOKEN cookie in Postman's cookie jar. The collection's pre-request script (see the collection-level 'Pre-request Script' tab) reads that cookie and automatically adds it as the X-XSRF-TOKEN header on every POST/PUT/DELETE request from here on, so you never have to copy it manually."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 204', function () { pm.response.to.have.status(204); });",
+                  "pm.test('XSRF-TOKEN cookie was set', function () {",
+                  "    pm.expect(pm.cookies.has('XSRF-TOKEN')).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. Login",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Logs in and sets the httpOnly ACCESS_TOKEN cookie (the JWT). You will NOT see this cookie's value anywhere in Postman's UI -- httpOnly cookies are invisible to scripts and the cookie inspector shows them without a value/flag readout in some Postman versions, but Postman's cookie jar still stores and automatically resends it on every subsequent request to the same host, exactly like a real browser would. That is expected and correct; it does not mean login failed. Requires the XSRF-TOKEN cookie to already exist -- run 'Get CSRF Token' first."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "    const json = pm.response.json();",
+                  "    pm.collectionVariables.set('loggedInEmail', json.email);",
+                  "    pm.collectionVariables.set('loggedInRole', json.role);",
+                  "    pm.test('Response has email and role', function () {",
+                  "        pm.expect(json.email).to.be.a('string');",
+                  "        pm.expect(json.role).to.be.a('string');",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3. Activate Account (musician/second admin)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/activate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "activate"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{activationToken}}\",\n  \"newPassword\": \"{{newPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Sets the initial password for an account created via 'Admin: Users > Create User'. The one-time activationToken is only ever returned in that create response and is auto-saved into the {{activationToken}} / {{musicianActivationToken}} collection variables by that request's test script -- copy whichever one you need into the 'token' field below (or point it at {{activationToken}}) before sending. Does not require being logged in, but does require a fresh CSRF cookie/header."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4. Complete Password Reset",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/password-reset/complete",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "password-reset",
+                "complete"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{resetToken}}\",\n  \"newPassword\": \"{{newPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "IMPORTANT: as of this backend version there is NO self-service 'request a password reset' HTTP endpoint (checked AuthController/AuthService directly -- only activate() and resetPassword() exist, the latter has no public trigger). A RESET-type password_token row currently has no way to be created except directly in the database. This request is included for completeness / future use and works fine once you have a valid raw reset token (e.g. inserted by hand into the password_token table for manual testing), but there is nothing in the product today that emails one to a user. Set {{resetToken}} manually before using this."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5. Logout",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/logout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "logout"
+              ]
+            },
+            "description": "Invalidates the current session server-side by bumping the account's tokenVersion (every JWT issued before this call becomes rejected, not just the cookie cleared client-side) and clears the ACCESS_TOKEN cookie. Requires being logged in (relies on the ACCESS_TOKEN cookie Postman is already holding)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Public Site",
+      "description": "Unauthenticated reads: news, gallery, videos, courses, public events. No login, no CSRF token needed (GET requests only). Safe to run any time, in any order.",
+      "item": [
+        {
+          "name": "Get News",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/public/news",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "public",
+                "news"
+              ]
+            },
+            "description": "Public, unauthenticated. Published news posts."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Gallery (albums + photos)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/public/gallery",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "public",
+                "gallery"
+              ]
+            },
+            "description": "Public, unauthenticated. Photos grouped by album, per the spec's 'album view' requirement."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Gallery Photo File",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/public/gallery/photos/{{photoId}}/file",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "public",
+                "gallery",
+                "photos",
+                "{{photoId}}",
+                "file"
+              ]
+            },
+            "description": "Public, unauthenticated. Returns the raw image bytes (inline, cacheable) for a photo uploaded via 'Admin: Public Content > Upload Album Photo'. Set {{photoId}} to a real photo id first (that request does not currently auto-capture one -- check the response body of the upload request)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Videos",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/public/videos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "public",
+                "videos"
+              ]
+            },
+            "description": "Public, unauthenticated."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Courses",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/public/courses",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "public",
+                "courses"
+              ]
+            },
+            "description": "Public, unauthenticated."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Public Events",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/public/events",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "public",
+                "events"
+              ]
+            },
+            "description": "Public, unauthenticated concert/event listing -- deliberately a different surface from the internal calendar in 'Admin: Events'. Only shows events created with isPublic=true."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Contact",
+      "description": "The one unauthenticated WRITE in the API. Still needs a CSRF cookie/header, so run 'Auth > Get CSRF Token' at least once first.",
+      "item": [
+        {
+          "name": "Submit Contact Form",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/contact",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "contact"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Jane Visitor\",\n  \"email\": \"jane.visitor@example.com\",\n  \"message\": \"Hi, I'd like to know more about your beginner guitar course.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Public, unauthenticated -- the first unauthenticated WRITE in the API. Still requires a CSRF cookie/header exactly like the /api/auth POSTs, so run 'Auth > Get CSRF Token' at least once in this session first. On success, every ACTIVE admin gets an email notification (requires MAIL_HOST/MAIL_PORT/MAIL_FROM to be configured and reachable on the backend)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 201', function () { pm.response.to.have.status(201); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Admin: Users",
+      "description": "Requires an ADMIN account, logged in, holding the MANAGE_USERS permission toggle (see collection description's 'First-time setup' for how to grant it -- there is no HTTP endpoint for it). Changing a user's role additionally requires MANAGE_ADMIN_ROLES.",
+      "item": [
+        {
+          "name": "Create User (Admin example)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/users",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "users"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"second.admin@example.com\",\n  \"role\": \"ADMIN\",\n  \"minor\": false,\n  \"guardianContact\": null,\n  \"consentOnFile\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Requires MANAGE_USERS (ordinary profile CRUD) -- but since this example sets role=ADMIN, it ALSO requires MANAGE_ADMIN_ROLES on the actor, per Permission.MANAGE_ADMIN_ROLES's own Javadoc ('any actor changing a target's role ... MUST additionally hold this permission'). The response includes a one-time activationToken -- captured below into {{activationToken}} -- hand it to 'Auth > Activate Account' to set that user's first password."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 201', function () { pm.response.to.have.status(201); });",
+                  "if (pm.response.code === 201) {",
+                  "    const json = pm.response.json();",
+                  "    pm.collectionVariables.set('userId', json.user.id);",
+                  "    pm.collectionVariables.set('activationToken', json.activationToken);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create User (Musician example)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/users",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "users"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"musician1@example.com\",\n  \"role\": \"MUSICIAN\",\n  \"minor\": false,\n  \"guardianContact\": null,\n  \"consentOnFile\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Requires MANAGE_USERS. role=MUSICIAN does NOT require MANAGE_ADMIN_ROLES. The created id is saved into {{musicianId}} so 'Admin: Groups > Assign Musician to Group' and the sheet-music/event scoping fields have something real to point at."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 201', function () { pm.response.to.have.status(201); });",
+                  "if (pm.response.code === 201) {",
+                  "    const json = pm.response.json();",
+                  "    pm.collectionVariables.set('musicianId', json.user.id);",
+                  "    pm.collectionVariables.set('musicianActivationToken', json.activationToken);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Users",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/users",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "users"
+              ]
+            },
+            "description": "Requires MANAGE_USERS."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get User by Id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/users/{{userId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "{{userId}}"
+              ]
+            },
+            "description": "Requires MANAGE_USERS."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update User",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/users/{{userId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "{{userId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"second.admin@example.com\",\n  \"role\": \"ADMIN\",\n  \"minor\": false,\n  \"guardianContact\": null,\n  \"consentOnFile\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Requires MANAGE_USERS (and MANAGE_ADMIN_ROLES too if role is being changed)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Deactivate User",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/users/{{userId}}/deactivate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "{{userId}}",
+                "deactivate"
+              ]
+            },
+            "description": "Requires MANAGE_USERS. Blocks future logins and bumps tokenVersion (any existing session for that user is invalidated immediately). Cannot target yourself -- returns 403 SelfTargetNotAllowedException if {{userId}} equals the logged-in actor's own id."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Admin: Audit",
+      "description": "Requires an ADMIN account, logged in (base role gate only -- no additional permission toggle exists for audit specifically, per SecurityConfig's own comment). Read-only history; there is no write endpoint here by design.",
+      "item": [
+        {
+          "name": "Get Audit History",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/audit/{{auditEntityType}}/{{groupId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "audit",
+                "{{auditEntityType}}",
+                "{{groupId}}"
+              ]
+            },
+            "description": "Read-only history for one entity, addressed by (entityType, entityId). No create endpoint exists -- rows are written internally whenever another admin action happens (e.g. GROUP_CREATED). {{auditEntityType}} defaults to 'Group' so this works out of the box after you run 'Admin: Groups > Create Group' -- other real entityType values seen in the codebase: UserAccount, Collection, SheetMusic, Event. Swap the path variables to inspect any of those instead."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Admin: Groups",
+      "description": "Requires an ADMIN account, logged in, holding the MANAGE_GROUPS permission toggle.",
+      "item": [
+        {
+          "name": "Create Group",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/groups",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "groups"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Brass Ensemble\",\n  \"description\": \"Weekly Tuesday rehearsal group\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Requires MANAGE_GROUPS."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 201', function () { pm.response.to.have.status(201); });",
+                  "if (pm.response.code === 201) {",
+                  "    pm.collectionVariables.set('groupId', pm.response.json().id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Groups",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/groups",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "groups"
+              ]
+            },
+            "description": "Requires MANAGE_GROUPS."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Group by Id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/groups/{{groupId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "groups",
+                "{{groupId}}"
+              ]
+            },
+            "description": "Requires MANAGE_GROUPS."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Group",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/groups/{{groupId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "groups",
+                "{{groupId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Brass Ensemble\",\n  \"description\": \"Weekly Tuesday rehearsal group (updated)\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Requires MANAGE_GROUPS."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Group Musicians",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/groups/{{groupId}}/musicians",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "groups",
+                "{{groupId}}",
+                "musicians"
+              ]
+            },
+            "description": "Requires MANAGE_GROUPS. Returns the minimal {id, email, role} shape, deliberately not the richer user DTO, to avoid leaking MANAGE_USERS-domain PII to a MANAGE_GROUPS-only actor."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Assign Musician to Group",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/groups/{{groupId}}/musicians/{{musicianId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "groups",
+                "{{groupId}}",
+                "musicians",
+                "{{musicianId}}"
+              ]
+            },
+            "description": "Requires MANAGE_GROUPS. Run 'Admin: Users > Create User (Musician example)' first so {{musicianId}} is populated."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unassign Musician from Group",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/groups/{{groupId}}/musicians/{{musicianId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "groups",
+                "{{groupId}}",
+                "musicians",
+                "{{musicianId}}"
+              ]
+            },
+            "description": "Requires MANAGE_GROUPS. Run this before 'Delete Group' if you assigned a musician above."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete Group",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/groups/{{groupId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "groups",
+                "{{groupId}}"
+              ]
+            },
+            "description": "Requires MANAGE_GROUPS. Returns 409 Conflict (GroupInUseException) if the group still has members -- run 'Unassign Musician from Group' for every member first. Placed last in this folder deliberately."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 204', function () { pm.response.to.have.status(204); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Admin: Sheet Music",
+      "description": "Collections require ADMIN + MANAGE_SHEET_MUSIC. Uploading a piece requires just MANAGE_SHEET_MUSIC (any authenticated role can reach this path, but the service layer still gates the mutation). Downloading only requires being authenticated AND in scope for that specific piece -- try downloading as a musician who isn't scoped to see the IDOR-safe 404 behavior.",
+      "item": [
+        {
+          "name": "Create Sheet Music Collection",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/collections",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "collections"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Concert Band Repertoire 2026\",\n  \"description\": \"Pieces for the spring concert\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Requires MANAGE_SHEET_MUSIC. A collection is a folder sheet music pieces are filed under."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 201', function () { pm.response.to.have.status(201); });",
+                  "if (pm.response.code === 201) {",
+                  "    pm.collectionVariables.set('collectionId', pm.response.json().id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Upload Sheet Music",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 201', function () { pm.response.to.have.status(201); });",
+                  "if (pm.response.code === 201) {",
+                  "    pm.collectionVariables.set('sheetMusicId', pm.response.json().id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "description": "Requires being authenticated (any role) -- MANAGE_SHEET_MUSIC is additionally required to actually upload. Multipart form: select a real file for the 'file' field in Postman's body editor before sending (Postman cannot embed a file for you in a shared JSON collection). allScope=true here means every authenticated user can download it; leave groupIds/musicianIds disabled unless you want to scope access instead.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "title",
+                  "value": "Symphony No. 5 - First Movement",
+                  "type": "text"
+                },
+                {
+                  "key": "composer",
+                  "value": "L. van Beethoven",
+                  "type": "text"
+                },
+                {
+                  "key": "collectionId",
+                  "value": "{{collectionId}}",
+                  "type": "text"
+                },
+                {
+                  "key": "allScope",
+                  "value": "true",
+                  "type": "text"
+                },
+                {
+                  "key": "groupIds",
+                  "value": "{{groupId}}",
+                  "type": "text",
+                  "disabled": true
+                },
+                {
+                  "key": "musicianIds",
+                  "value": "{{musicianId}}",
+                  "type": "text",
+                  "disabled": true
+                },
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": null
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/sheet-music",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "sheet-music"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Download Sheet Music File",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/sheet-music/{{sheetMusicId}}/file",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "sheet-music",
+                "{{sheetMusicId}}",
+                "file"
+              ]
+            },
+            "description": "IDOR-safe: returns 404 (never 403) whether the id does not exist or you simply cannot access it, so this also doubles as an access-control test -- try it while logged in as a musician who is not in scope for the piece."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Admin: Events",
+      "description": "The internal calendar. Listing/viewing only requires being authenticated (any role) and in scope for that event; creating/editing/cancelling additionally requires MANAGE_EVENTS.",
+      "item": [
+        {
+          "name": "Create Event",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/events",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "events"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Spring Concert\",\n  \"description\": \"Annual spring concert at the village hall\",\n  \"location\": \"Village Hall\",\n  \"startsAt\": \"2026-05-15T18:00:00Z\",\n  \"isPublic\": true,\n  \"allScope\": true,\n  \"groupIds\": [],\n  \"musicianIds\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Requires being authenticated (any role); MANAGE_EVENTS is additionally required to create/edit/cancel. startsAt must be an ISO-8601 instant (UTC). isPublic=true also makes it show up in 'Public Site > Get Public Events'."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 201', function () { pm.response.to.have.status(201); });",
+                  "if (pm.response.code === 201) {",
+                  "    pm.collectionVariables.set('eventId', pm.response.json().id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Events (internal calendar)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/events",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "events"
+              ]
+            },
+            "description": "Requires being authenticated. Scoped: only events the logged-in actor can access are returned (cancelled ones included, with status shown)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Event by Id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/events/{{eventId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "events",
+                "{{eventId}}"
+              ]
+            },
+            "description": "IDOR-safe: 404 whether it doesn't exist or you can't access it."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Event",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/events/{{eventId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "events",
+                "{{eventId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Spring Concert (rescheduled)\",\n  \"description\": \"Annual spring concert at the village hall\",\n  \"location\": \"Village Hall\",\n  \"startsAt\": \"2026-05-22T18:00:00Z\",\n  \"isPublic\": true,\n  \"allScope\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Requires MANAGE_EVENTS. Note: access scope (groupIds/musicianIds) can only be set at creation, not edited here."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cancel Event",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/events/{{eventId}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "events",
+                "{{eventId}}",
+                "cancel"
+              ]
+            },
+            "description": "Requires MANAGE_EVENTS. Non-destructive, idempotent lifecycle end-state -- there is deliberately no delete endpoint for events."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Admin: Public Content Management",
+      "description": "Requires an ADMIN account, logged in, holding the MANAGE_CONTENT permission toggle. These are the write-side counterparts of the read-only 'Public Site' folder -- create something here, then re-run the matching Public Site request to see it appear.",
+      "item": [
+        {
+          "name": "Create News Post",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/news",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "news"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"New rehearsal schedule announced\",\n  \"body\": \"Starting next month, rehearsals move to Wednesdays at 7pm.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Requires MANAGE_CONTENT. Shows up immediately in 'Public Site > Get News'."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 201', function () { pm.response.to.have.status(201); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Album",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/albums",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "albums"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Spring Concert 2026\",\n  \"description\": \"Photos from the spring concert\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Requires MANAGE_CONTENT. Create an album first, then upload photos into it below."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 201', function () { pm.response.to.have.status(201); });",
+                  "if (pm.response.code === 201) {",
+                  "    pm.collectionVariables.set('albumId', pm.response.json().id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Upload Album Photo",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 201', function () { pm.response.to.have.status(201); });",
+                  "if (pm.response.code === 201) {",
+                  "    pm.collectionVariables.set('photoId', pm.response.json().id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "description": "Requires MANAGE_CONTENT. Multipart form, mirrors the sheet-music upload shape: select a real image file for the 'file' field before sending. The resulting photo id is saved to {{photoId}} and is what 'Public Site > Get Gallery Photo File' downloads.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "caption",
+                  "value": "The full band on stage",
+                  "type": "text"
+                },
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": null
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/albums/{{albumId}}/photos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "albums",
+                "{{albumId}}",
+                "photos"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Video Link",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/videos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "videos"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Spring Concert Highlights\",\n  \"url\": \"https://www.youtube.com/watch?v=example\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Requires MANAGE_CONTENT. Shows up immediately in 'Public Site > Get Videos'."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 201', function () { pm.response.to.have.status(201); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Course Announcement",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/courses",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "courses"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Beginner Guitar - Autumn Term\",\n  \"description\": \"8-week beginner course, no experience needed\",\n  \"startDate\": \"2026-09-07\",\n  \"endDate\": \"2026-10-26\",\n  \"price\": 120.0,\n  \"instrument\": \"Guitar\",\n  \"minimumAge\": 8\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Requires MANAGE_CONTENT. Shows up immediately in 'Public Site > Get Courses'."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 201', function () { pm.response.to.have.status(201); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
