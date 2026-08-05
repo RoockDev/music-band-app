@@ -174,4 +174,42 @@ class AlbumServiceTest {
         verify(fileStorage).delete("orphaned-key");
         verifyNoInteractions(auditService);
     }
+
+    // ---- storage failure ----
+
+    /** Mirrors {@code SheetMusicServiceTest.uploadWrapsAnIOExceptionFromFileStorageIntoSheetMusicStorageException}:
+     * the highest-priority regression test for this class, since {@code fileStorage.store}
+     * failing is the one storage failure mode not yet covered by a dedicated test. */
+    @Test
+    void addPhotoWrapsAnIOExceptionFromFileStorageIntoPhotoStorageException() throws IOException {
+        UserAccount actor = adminActor();
+        Album album = new Album("Summer Tour", null, NOW);
+        when(albumRepository.findById(5L)).thenReturn(Optional.of(album));
+        when(fileStorage.store(any())).thenThrow(new IOException("disk full"));
+
+        assertThatThrownBy(() -> albumService.addPhoto(actor, 5L, "image/png", anyStream(), null))
+                .isInstanceOf(PhotoStorageException.class);
+
+        verifyNoInteractions(photoRepository);
+        verifyNoInteractions(auditService);
+    }
+
+    /** Mirrors {@code SheetMusicServiceTest.uploadOnAFailedAccessScopeStillThrowsTheOriginalExceptionEvenIfCleanupItselfFails}:
+     * a cleanup failure (the delete itself throwing) must never mask the ORIGINAL persist
+     * failure the caller actually needs to see. */
+    @Test
+    void addPhotoOnAFailedPersistStillThrowsTheOriginalExceptionEvenIfCleanupItselfFails() throws IOException {
+        UserAccount actor = adminActor();
+        Album album = new Album("Summer Tour", null, NOW);
+        when(albumRepository.findById(5L)).thenReturn(Optional.of(album));
+        when(fileStorage.store(any())).thenReturn("orphaned-key");
+        when(photoRepository.saveAndFlush(any(Photo.class))).thenThrow(new RuntimeException("DB down"));
+        doThrow(new IOException("disk error during cleanup")).when(fileStorage).delete("orphaned-key");
+
+        assertThatThrownBy(() -> albumService.addPhoto(actor, 5L, "image/png", anyStream(), null))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage("DB down");
+
+        verifyNoInteractions(auditService);
+    }
 }

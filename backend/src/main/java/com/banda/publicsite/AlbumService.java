@@ -29,8 +29,11 @@ import java.util.Set;
  * album/photo management.
  *
  * <p>Photo storage reuses {@link FileStorage} (Section 5's abstraction) rather than building
- * a separate mechanism — {@link #addPhoto} follows {@code SheetMusicService#upload}'s exact
- * shape, including the orphaned-file cleanup on a failed post-store step.
+ * a separate mechanism — {@link #addPhoto} follows the same store-then-persist-then-cleanup-
+ * on-failure shape as {@code SheetMusicService#upload}, with cleanup additionally covering the
+ * persist step itself (a narrow gap in the source pattern: {@code SheetMusicService#upload}'s
+ * own {@code saveAndFlush} sits outside its try/cleanup block, so a persist failure there is
+ * not itself cleaned up — not something fixed here, just not misrepresented as an exact match).
  *
  * <p>{@code actor} is trusted as-is: callers (currently {@link AlbumController}) MUST resolve
  * it from the authenticated principal, never from client-supplied request data.

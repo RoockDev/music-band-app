@@ -102,6 +102,22 @@ class PublicContentServiceTest {
         assertThat(result.contentType()).isEqualTo("image/jpeg");
     }
 
+    /** Mirrors {@code SheetMusicServiceTest.downloadWrapsAnIOExceptionFromFileStorageRetrieveIntoSheetMusicStorageException}
+     * — highest-priority of the three IOException regression tests requested for this PR, since
+     * this is the unauthenticated, public-facing read path (unlike sheet music's download,
+     * which requires a login first). */
+    @Test
+    void getPhotoFileWrapsAnIOExceptionFromFileStorageRetrieveIntoPhotoStorageException() throws IOException {
+        Album album = albumWithId(1L, "Spring Tour");
+        Photo photo = photoInAlbum(album, "on stage");
+        org.springframework.test.util.ReflectionTestUtils.setField(photo, "id", 20L);
+        when(photoRepository.findById(20L)).thenReturn(Optional.of(photo));
+        when(fileStorage.retrieve(photo.getStorageKey())).thenThrow(new IOException("disk error"));
+
+        assertThatThrownBy(() -> publicContentService.getPhotoFile(20L))
+                .isInstanceOf(PhotoStorageException.class);
+    }
+
     @Test
     void getPhotoFileOnAnUnknownIdThrowsPhotoNotFoundException() {
         when(photoRepository.findById(404L)).thenReturn(Optional.empty());
