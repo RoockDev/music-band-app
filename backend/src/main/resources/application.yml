@@ -58,3 +58,7 @@ app:
     # outside src/main/resources/static or any other classpath location Spring Boot
     # auto-serves — never static-served, per Section 5's explicit requirement.
     base-dir: ${APP_FILE_STORAGE_BASE_DIR:/data/files}
+  mail:
+    # Design decision #5: not a secret (unlike JWT_SECRET), so a sensible local-dev default
+    # is fine here — override via MAIL_FROM in prod to a real, deliverable sender address.
+    from: ${MAIL_FROM:no-reply@banda.local}
