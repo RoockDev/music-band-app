@@ -1,6 +1,7 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
+import { vi } from 'vitest';
 import { AdminArchivePage } from './admin-archive-page';
 
 describe('AdminArchivePage collection management', () => {
@@ -14,7 +15,10 @@ describe('AdminArchivePage collection management', () => {
     http = TestBed.inject(HttpTestingController);
   });
 
-  afterEach(() => http.verify());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    http.verify();
+  });
 
   it('sends collection version on edit and keeps sheet music untouched', () => {
     const fixture = TestBed.createComponent(AdminArchivePage);
@@ -66,10 +70,13 @@ describe('AdminArchivePage collection management', () => {
         composer: null,
         collectionId: 2,
         allScope: true,
+        groupIds: [],
+        musicianIds: [],
         originalFilename: 'march.pdf',
         contentType: 'application/pdf',
         createdAt: '2026-01-01T00:00:00Z',
         updatedAt: '2026-01-01T00:00:00Z',
+        version: 0,
       },
     ]);
     fixture.detectChanges();
@@ -107,6 +114,69 @@ describe('AdminArchivePage collection management', () => {
     expect(component.editingCollection().version).toBe(3);
     expect(fixture.nativeElement.textContent).toContain('Se han recargado');
   });
+
+  it('updates sheet metadata and scope without replacing the file, then deletes by version', () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const fixture = TestBed.createComponent(AdminArchivePage);
+    fixture.detectChanges();
+    const score = sheetMusic({ groupIds: [5], musicianIds: [8], version: 4 });
+    http.expectOne('/api/collections').flush([collection()]);
+    http.expectOne('/api/sheet-music/admin').flush([score]);
+    fixture.detectChanges();
+
+    const component = fixture.componentInstance as any;
+    component.editScore(score);
+    component.uploadForm.controls.groupIds.setValue('7');
+    component.uploadForm.controls.musicianIds.setValue('');
+    component.saveScore();
+    http.expectOne('/api/auth/csrf').flush('');
+    const update = http.expectOne('/api/sheet-music/10');
+    expect(update.request.body.groupIds).toEqual([7]);
+    expect(update.request.body.musicianIds).toEqual([]);
+    expect(update.request.body.version).toBe(4);
+    expect(update.request.body.file).toBeUndefined();
+    const updated = sheetMusic({ groupIds: [7], musicianIds: [], version: 5 });
+    update.flush(updated);
+    fixture.detectChanges();
+
+    component.deleteScore(updated);
+    http.expectOne('/api/auth/csrf').flush('');
+    const remove = http.expectOne('/api/sheet-music/10?version=5');
+    expect(remove.request.method).toBe('DELETE');
+    remove.flush(null);
+    fixture.detectChanges();
+
+    expect(component.scores()).toEqual([]);
+    expect(fixture.nativeElement.textContent).toContain('Partitura eliminada.');
+  });
+
+  it('reloads the current sheet editor after a stale update', () => {
+    const fixture = TestBed.createComponent(AdminArchivePage);
+    fixture.detectChanges();
+    const stale = sheetMusic({ version: 1 });
+    http.expectOne('/api/collections').flush([collection()]);
+    http.expectOne('/api/sheet-music/admin').flush([stale]);
+
+    const component = fixture.componentInstance as any;
+    component.editScore(stale);
+    component.uploadForm.controls.title.setValue('Attempted title');
+    component.saveScore();
+    http.expectOne('/api/auth/csrf').flush('');
+    http.expectOne('/api/sheet-music/10').flush(
+      { code: 'CONCURRENT_MODIFICATION', error: 'conflict' },
+      { status: 409, statusText: 'Conflict' },
+    );
+
+    const latest = sheetMusic({ title: 'Latest title', groupIds: [7], version: 2 });
+    http.expectOne('/api/collections').flush([collection()]);
+    http.expectOne('/api/sheet-music/admin').flush([latest]);
+    fixture.detectChanges();
+
+    expect(component.uploadForm.controls.title.value).toBe('Latest title');
+    expect(component.uploadForm.controls.groupIds.value).toBe('7');
+    expect(component.editingScore().version).toBe(2);
+    expect(fixture.nativeElement.textContent).toContain('Se han recargado');
+  });
 });
 
 function collection(overrides: Record<string, unknown> = {}) {
@@ -114,6 +184,24 @@ function collection(overrides: Record<string, unknown> = {}) {
     id: 2,
     name: 'Marches',
     description: null,
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
+    version: 0,
+    ...overrides,
+  };
+}
+
+function sheetMusic(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 10,
+    title: 'March',
+    composer: null,
+    collectionId: 2,
+    allScope: false,
+    groupIds: [],
+    musicianIds: [],
+    originalFilename: 'march.pdf',
+    contentType: 'application/pdf',
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',
     version: 0,

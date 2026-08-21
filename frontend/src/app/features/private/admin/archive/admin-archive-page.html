@@ -15,8 +15,7 @@
       {{ editingCollection() ? 'Editar colección' : 'Abrir una carpeta' }}
     </h2>
     <p class="constraint">
-      Una colección que contiene partituras no se puede eliminar. Esta unidad no modifica ni elimina
-      partituras.
+      Una colección que contiene partituras no se puede eliminar. Reubica o elimina primero su contenido.
     </p>
     <form [formGroup]="collectionForm" (ngSubmit)="saveCollection()">
       <div class="field">
@@ -83,9 +82,12 @@
     </ul>
   </section>
   <section aria-labelledby="upload-title">
-    <p class="section-index">Nueva partitura</p>
-    <h2 id="upload-title">Subir material</h2>
-    <form [formGroup]="uploadForm" (ngSubmit)="upload()">
+    <p class="section-index">{{ editingScore() ? 'Editar partitura' : 'Nueva partitura' }}</p>
+    <h2 id="upload-title">{{ editingScore() ? 'Actualizar material' : 'Subir material' }}</h2>
+    @if (editingScore()) {
+      <p class="constraint">La edición actualiza metadatos y alcance sin reemplazar el archivo.</p>
+    }
+    <form [formGroup]="uploadForm" (ngSubmit)="saveScore()">
       <div class="field">
         <label for="score-title">Título</label><input id="score-title" formControlName="title" />
       </div>
@@ -102,17 +104,23 @@
           }
         </select>
       </div>
-      <div class="field">
-        <label for="score-file">Archivo</label
-        ><input
-          id="score-file"
-          type="file"
-          accept="application/pdf,image/png,image/jpeg"
-          (change)="chooseFile($event)"
-        /><small>PDF, PNG o JPEG · máximo 20 MB</small>
-      </div>
+      @if (!editingScore()) {
+        <div class="field">
+          <label for="score-file">Archivo</label
+          ><input
+            id="score-file"
+            type="file"
+            accept="application/pdf,image/png,image/jpeg"
+            (change)="chooseFile($event)"
+          /><small>PDF, PNG o JPEG · máximo 20 MB</small>
+        </div>
+      }
       <label class="check-field"
-        ><input type="checkbox" formControlName="allScope" /> Disponible para toda la banda</label
+        ><input
+          type="checkbox"
+          formControlName="allScope"
+          (change)="globalScopeChanged()"
+        /> Disponible para toda la banda</label
       >
       <div class="scope-grid">
         <div class="field">
@@ -127,13 +135,29 @@
       @if (uploadError()) {
         <p class="form-message error" role="alert">{{ uploadError() }}</p>
       }
+      @if (scoreNotice()) {
+        <p class="form-message" role="status">{{ scoreNotice() }}</p>
+      }
       <button
         class="button"
         type="submit"
         [disabled]="uploadSaving() || collections().length === 0"
       >
-        {{ uploadSaving() ? 'Subiendo…' : 'Subir partitura' }}
+        {{
+          uploadSaving()
+            ? editingScore()
+              ? 'Guardando…'
+              : 'Subiendo…'
+            : editingScore()
+              ? 'Guardar partitura'
+              : 'Subir partitura'
+        }}
       </button>
+      @if (editingScore()) {
+        <button class="text-button" type="button" (click)="cancelScoreEdit()">
+          Cancelar edición
+        </button>
+      }
     </form>
   </section>
 </div>
@@ -153,7 +177,7 @@
     @for (score of scores(); track score.id) {
       <li>
         <span aria-hidden="true">♪</span>
-        <div>
+        <div class="score-details">
           <p class="record-meta">
             ID {{ score.id }} · {{ collectionName(score.collectionId) }} ·
             {{ score.allScope ? 'Toda la banda' : 'Alcance limitado' }}
@@ -163,6 +187,30 @@
             {{ score.composer || 'Autoría no indicada' }} ·
             {{ score.originalFilename || 'Archivo sin nombre' }}
           </p>
+          @if (!score.allScope) {
+            <p>
+              Grupos: {{ score.groupIds.join(', ') || 'ninguno' }} · Músicos:
+              {{ score.musicianIds.join(', ') || 'ninguno' }}
+            </p>
+          }
+        </div>
+        <div class="record-actions score-actions">
+          <button
+            type="button"
+            (click)="editScore(score)"
+            [attr.data-edit-score-id]="score.id"
+          >
+            Editar
+          </button>
+          <button
+            class="danger"
+            type="button"
+            (click)="deleteScore(score)"
+            [attr.data-delete-score-id]="score.id"
+            [disabled]="scoreActionId() === score.id"
+          >
+            {{ scoreActionId() === score.id ? 'Eliminando…' : 'Eliminar' }}
+          </button>
         </div>
       </li>
     }

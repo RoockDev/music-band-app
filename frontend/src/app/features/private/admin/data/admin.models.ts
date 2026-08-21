@@ -132,6 +132,16 @@ export interface SheetMusicUpload {
   file: File;
 }
 
+export interface SheetMusicUpdate {
+  title: string;
+  composer: string | null;
+  collectionId: number;
+  allScope: boolean;
+  groupIds: number[];
+  musicianIds: number[];
+  version: number;
+}
+
 export interface AuditLog {
   id: number;
   actorId: number;

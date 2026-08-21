@@ -19,8 +19,11 @@ export interface SheetMusic {
   composer: string | null;
   collectionId: number;
   allScope: boolean;
+  groupIds: number[];
+  musicianIds: number[];
   originalFilename: string | null;
   contentType: string | null;
   createdAt: string;
   updatedAt: string;
+  version: number;
 }

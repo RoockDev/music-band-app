@@ -3,7 +3,7 @@ import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { finalize, forkJoin } from 'rxjs';
 import { PageState } from '../../../../shared/page-state/page-state';
 import { SheetMusic } from '../../data/private-content.models';
-import { Collection, SheetMusicUpload } from '../data/admin.models';
+import { Collection, SheetMusicUpdate, SheetMusicUpload } from '../data/admin.models';
 import { parseIdList } from '../data/admin-form.utils';
 import {
   adminErrorMessage,
@@ -30,10 +30,13 @@ export class AdminArchivePage implements OnInit {
   protected readonly failed = signal(false);
   protected readonly collectionSaving = signal(false);
   protected readonly uploadSaving = signal(false);
+  protected readonly scoreActionId = signal<number | null>(null);
   protected readonly collectionError = signal<string | null>(null);
   protected readonly collectionNotice = signal<string | null>(null);
   protected readonly editingCollection = signal<Collection | null>(null);
   protected readonly uploadError = signal<string | null>(null);
+  protected readonly scoreNotice = signal<string | null>(null);
+  protected readonly editingScore = signal<SheetMusic | null>(null);
   protected readonly selectedFile = signal<File | null>(null);
   protected readonly collectionForm = this.formBuilder.nonNullable.group({
     name: ['', Validators.required],
@@ -155,8 +158,53 @@ export class AdminArchivePage implements OnInit {
     this.uploadError.set(null);
   }
 
+  protected saveScore(): void {
+    if (this.editingScore()) {
+      this.updateScore();
+      return;
+    }
+    this.upload();
+  }
+
+  protected editScore(score: SheetMusic): void {
+    this.editingScore.set(score);
+    this.selectedFile.set(null);
+    if (this.fileInput) this.fileInput.value = '';
+    this.uploadError.set(null);
+    this.scoreNotice.set(null);
+    this.uploadForm.setValue({
+      title: score.title,
+      composer: score.composer ?? '',
+      collectionId: score.collectionId,
+      allScope: score.allScope,
+      groupIds: score.groupIds.join(', '),
+      musicianIds: score.musicianIds.join(', '),
+    });
+  }
+
+  protected cancelScoreEdit(): void {
+    const collectionId = this.uploadForm.controls.collectionId.value;
+    this.editingScore.set(null);
+    this.uploadError.set(null);
+    this.uploadForm.reset({
+      title: '',
+      composer: '',
+      collectionId,
+      allScope: false,
+      groupIds: '',
+      musicianIds: '',
+    });
+  }
+
+  protected globalScopeChanged(): void {
+    if (this.uploadForm.controls.allScope.value) {
+      this.uploadForm.patchValue({ groupIds: '', musicianIds: '' });
+    }
+  }
+
   protected upload(): void {
     this.uploadError.set(null);
+    this.scoreNotice.set(null);
     const file = this.selectedFile();
     if (this.uploadForm.invalid || !file) {
       this.uploadForm.markAllAsTouched();
@@ -204,9 +252,70 @@ export class AdminArchivePage implements OnInit {
             groupIds: '',
             musicianIds: '',
           });
+          this.scoreNotice.set('Partitura subida.');
         },
         error: (error: unknown) =>
           this.uploadError.set(adminErrorMessage(error, 'el archivo de partituras')),
+      });
+  }
+
+  protected updateScore(): void {
+    const editing = this.editingScore();
+    if (!editing || this.uploadForm.invalid) {
+      this.uploadForm.markAllAsTouched();
+      return;
+    }
+    this.uploadError.set(null);
+    this.scoreNotice.set(null);
+    const value = this.uploadForm.getRawValue();
+    const groupIds = parseIdList(value.groupIds);
+    const musicianIds = parseIdList(value.musicianIds);
+    if (groupIds === null || musicianIds === null) {
+      this.uploadError.set(
+        'Los alcances deben contener identificadores positivos separados por comas.',
+      );
+      return;
+    }
+    const request: SheetMusicUpdate = {
+      title: value.title.trim(),
+      composer: value.composer.trim() || null,
+      collectionId: value.collectionId,
+      allScope: value.allScope,
+      groupIds,
+      musicianIds,
+      version: editing.version,
+    };
+    this.uploadSaving.set(true);
+    this.admin
+      .updateSheetMusic(editing.id, request)
+      .pipe(finalize(() => this.uploadSaving.set(false)))
+      .subscribe({
+        next: (updated) => {
+          this.scores.update((items) =>
+            this.sortScores(items.map((item) => (item.id === updated.id ? updated : item))),
+          );
+          this.cancelScoreEdit();
+          this.scoreNotice.set('Partitura actualizada.');
+        },
+        error: (error: unknown) => this.handleScoreError(error, editing.id),
+      });
+  }
+
+  protected deleteScore(score: SheetMusic): void {
+    if (!window.confirm(`¿Eliminar la partitura “${score.title}” y su archivo?`)) return;
+    this.scoreActionId.set(score.id);
+    this.uploadError.set(null);
+    this.scoreNotice.set(null);
+    this.admin
+      .deleteSheetMusic(score.id, score.version)
+      .pipe(finalize(() => this.scoreActionId.set(null)))
+      .subscribe({
+        next: () => {
+          this.scores.update((items) => items.filter((item) => item.id !== score.id));
+          if (this.editingScore()?.id === score.id) this.cancelScoreEdit();
+          this.scoreNotice.set('Partitura eliminada.');
+        },
+        error: (error: unknown) => this.handleScoreError(error, score.id),
       });
   }
 
@@ -240,6 +349,36 @@ export class AdminArchivePage implements OnInit {
       },
       error: () =>
         this.collectionError.set(
+          'Hay un conflicto de edición y no se ha podido recargar el archivo actual.',
+        ),
+    });
+  }
+
+  private handleScoreError(error: unknown, scoreId: number): void {
+    if (!isConcurrentModification(error)) {
+      this.uploadError.set(adminErrorMessage(error, 'partituras'));
+      return;
+    }
+    forkJoin({
+      collections: this.admin.getCollections(),
+      scores: this.admin.getManagedSheetMusic(),
+    }).subscribe({
+      next: ({ collections, scores }) => {
+        this.collections.set(this.sortCollections(collections));
+        const sortedScores = this.sortScores(scores);
+        this.scores.set(sortedScores);
+        const latest = sortedScores.find((item) => item.id === scoreId);
+        if (latest && this.editingScore()?.id === scoreId) {
+          this.editScore(latest);
+        } else if (!latest && this.editingScore()?.id === scoreId) {
+          this.cancelScoreEdit();
+        }
+        this.uploadError.set(
+          'Otra persona modificó la partitura. Se han recargado los datos actuales.',
+        );
+      },
+      error: () =>
+        this.uploadError.set(
           'Hay un conflicto de edición y no se ha podido recargar el archivo actual.',
         ),
     });

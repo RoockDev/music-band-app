@@ -163,6 +163,30 @@ describe('AdminService', () => {
     request.flush({ id: 10 });
   });
 
+  it('uses versioned sheet-music update and delete contracts', () => {
+    const update = {
+      title: 'Updated suite',
+      composer: null,
+      collectionId: 3,
+      allScope: false,
+      groupIds: [4],
+      musicianIds: [],
+      version: 6,
+    };
+    service.updateSheetMusic(10, update).subscribe();
+    http.expectOne('/api/auth/csrf').flush('');
+    const updateRequest = http.expectOne('/api/sheet-music/10');
+    expect(updateRequest.request.method).toBe('PUT');
+    expect(updateRequest.request.body).toEqual(update);
+    updateRequest.flush({ id: 10, version: 7 });
+
+    service.deleteSheetMusic(10, 7).subscribe();
+    http.expectOne('/api/auth/csrf').flush('');
+    const deleteRequest = http.expectOne('/api/sheet-music/10?version=7');
+    expect(deleteRequest.request.method).toBe('DELETE');
+    deleteRequest.flush(null);
+  });
+
   it('uses the event lifecycle and collection creation contracts', () => {
     const event = {
       title: 'Rehearsal',

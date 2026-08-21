@@ -28,6 +28,7 @@ import {
   GroupUpdateMutation,
   ManagedEvent,
   SheetMusicUpload,
+  SheetMusicUpdate,
   UserAccount,
   UserMutation,
   UserUpdateMutation,
@@ -203,6 +204,16 @@ export class AdminService {
     return this.csrf
       .ensureToken()
       .pipe(switchMap(() => this.http.post<SheetMusic>('/api/sheet-music', form)));
+  }
+
+  updateSheetMusic(id: number, request: SheetMusicUpdate): Observable<SheetMusic> {
+    return this.csrf
+      .ensureToken()
+      .pipe(switchMap(() => this.http.put<SheetMusic>(`/api/sheet-music/${id}`, request)));
+  }
+
+  deleteSheetMusic(id: number, version: number): Observable<void> {
+    return this.deleteVersioned(`/api/sheet-music/${id}`, version);
   }
 
   createNews(request: { title: string; body: string }): Observable<NewsPost> {
