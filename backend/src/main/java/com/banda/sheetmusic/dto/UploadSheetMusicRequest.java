@@ -2,6 +2,8 @@ package com.banda.sheetmusic.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
 
 import java.util.List;
 
@@ -20,11 +22,11 @@ import java.util.List;
  * {@code false}.
  */
 public record UploadSheetMusicRequest(
-        @NotBlank String title,
-        String composer,
-        @NotNull Long collectionId,
+        @NotBlank @Size(max = 255) String title,
+        @Size(max = 255) String composer,
+        @NotNull @Positive Long collectionId,
         Boolean allScope,
-        List<Long> groupIds,
-        List<Long> musicianIds
+        List<@NotNull @Positive Long> groupIds,
+        List<@NotNull @Positive Long> musicianIds
 ) {
 }

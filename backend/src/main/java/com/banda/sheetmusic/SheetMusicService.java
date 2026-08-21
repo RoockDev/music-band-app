@@ -2,21 +2,27 @@ package com.banda.sheetmusic;
 
 import com.banda.audit.AuditService;
 import com.banda.common.FileStorage;
+import com.banda.common.FileDeletionQueue;
 import com.banda.security.Permission;
 import com.banda.security.PermissionService;
 import com.banda.sheetmusic.dto.UploadSheetMusicRequest;
+import com.banda.sheetmusic.dto.UpdateSheetMusicRequest;
 import com.banda.users.UserAccount;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Section 5 (Sheet Music) upload use case: gated by {@link Permission#MANAGE_SHEET_MUSIC}
@@ -53,6 +59,7 @@ public class SheetMusicService {
     private final PermissionService permissionService;
     private final AuditService auditService;
     private final FileStorage fileStorage;
+    private final FileDeletionQueue fileDeletionQueue;
     private final SheetMusicAccessService accessService;
     private final SheetMusicAccessGrantService accessGrantService;
     private final Clock clock;
@@ -62,6 +69,7 @@ public class SheetMusicService {
                               PermissionService permissionService,
                               AuditService auditService,
                               FileStorage fileStorage,
+                              FileDeletionQueue fileDeletionQueue,
                               SheetMusicAccessService accessService,
                               SheetMusicAccessGrantService accessGrantService,
                               Clock clock) {
@@ -70,6 +78,7 @@ public class SheetMusicService {
         this.permissionService = permissionService;
         this.auditService = auditService;
         this.fileStorage = fileStorage;
+        this.fileDeletionQueue = fileDeletionQueue;
         this.accessService = accessService;
         this.accessGrantService = accessGrantService;
         this.clock = clock;
@@ -87,7 +96,11 @@ public class SheetMusicService {
                               String contentType, InputStream fileContent) {
         permissionService.requirePermission(actor, Permission.MANAGE_SHEET_MUSIC);
         requireAllowedContentType(contentType);
+        requireMetadataLengths(request.title(), request.composer(), originalFilename, contentType);
         Collection collection = requireCollection(request.collectionId());
+        boolean allScope = Boolean.TRUE.equals(request.allScope());
+        SheetMusicAccessGrantService.ScopeTargets scope = accessGrantService.resolveScope(
+                allScope, request.groupIds(), request.musicianIds());
 
         String storageKey;
         try {
@@ -96,40 +109,106 @@ public class SheetMusicService {
             throw new SheetMusicStorageException(e);
         }
 
-        Instant now = clock.instant();
-        SheetMusic sheetMusic = new SheetMusic(request.title(), request.composer(), collection, storageKey,
-                originalFilename, contentType, Boolean.TRUE.equals(request.allScope()), now);
-        SheetMusic saved = sheetMusicRepository.saveAndFlush(sheetMusic);
+        AtomicBoolean cleanupScheduled = new AtomicBoolean(false);
+        registerRollbackCleanup(storageKey, cleanupScheduled);
 
         try {
-            accessGrantService.applyAccessScope(saved, request.groupIds(), request.musicianIds());
+            Instant now = clock.instant();
+            SheetMusic sheetMusic = new SheetMusic(request.title(), request.composer(), collection, storageKey,
+                    originalFilename, contentType, allScope, now);
+            SheetMusic saved = sheetMusicRepository.saveAndFlush(sheetMusic);
+            accessGrantService.applyAccessScope(saved, scope);
+
+            auditService.record(actor.getId(), "SHEET_MUSIC_UPLOADED", "SheetMusic", saved.getId(),
+                    "title=" + request.title());
+            log.info("Sheet music uploaded: {}", saved.getId());
+            return saved;
         } catch (RuntimeException e) {
-            // applyAccessScope can throw (e.g. GroupNotFoundException/MusicianNotFoundException
-            // on an admin typo), which rolls back the DB transaction -- but fileStorage.store
-            // above already wrote real bytes to disk, outside that transaction's control.
-            // Without this cleanup, a failed upload would silently leak an orphaned file that
-            // nothing ever references again (no update/delete endpoint exists to find it).
-            cleanupOrphanedFile(storageKey);
+            scheduleOrphanCleanup(storageKey, cleanupScheduled);
             throw e;
         }
-
-        auditService.record(actor.getId(), "SHEET_MUSIC_UPLOADED", "SheetMusic", saved.getId(),
-                "title=" + request.title());
-        log.info("Sheet music uploaded: {}", saved.getId());
-
-        return saved;
     }
 
-    private void cleanupOrphanedFile(String storageKey) {
-        try {
-            fileStorage.delete(storageKey);
-        } catch (IOException cleanupFailure) {
-            // Best-effort: the original failure (surfaced to the caller right after this)
-            // must never be masked by a cleanup failure. Logged at WARN, not ERROR, since a
-            // leaked file here is a disk-hygiene concern, not a correctness one -- the DB
-            // transaction still rolled back cleanly.
-            log.warn("Failed to clean up orphaned file {} after a failed upload", storageKey, cleanupFailure);
+    private void registerRollbackCleanup(String storageKey, AtomicBoolean cleanupScheduled) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            return;
         }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                if (status != TransactionSynchronization.STATUS_COMMITTED) {
+                    scheduleOrphanCleanup(storageKey, cleanupScheduled);
+                }
+            }
+        });
+    }
+
+    private void scheduleOrphanCleanup(String storageKey, AtomicBoolean cleanupScheduled) {
+        if (!cleanupScheduled.compareAndSet(false, true)) {
+            return;
+        }
+        try {
+            fileDeletionQueue.enqueueIndependent(storageKey);
+        } catch (RuntimeException cleanupFailure) {
+            cleanupScheduled.set(false);
+            log.error("Failed to persist cleanup for orphaned file {} after a failed upload",
+                    storageKey, cleanupFailure);
+        }
+    }
+
+    public SheetMusic update(UserAccount actor, Long sheetMusicId, UpdateSheetMusicRequest request) {
+        permissionService.requirePermission(actor, Permission.MANAGE_SHEET_MUSIC);
+        SheetMusic sheetMusic = requireManagedSheetMusic(sheetMusicId);
+        if (!Objects.equals(request.version(), sheetMusic.getVersion())) {
+            throw new ConcurrentSheetMusicModificationException();
+        }
+        Collection collection = requireCollection(request.collectionId());
+        SheetMusicAccessGrantService.ScopeTargets scope = accessGrantService.resolveScope(
+                request.allScope(), request.groupIds(), request.musicianIds());
+        List<Long> currentGroupIds = accessGrantService.groupIds(sheetMusic);
+        List<Long> currentMusicianIds = accessGrantService.musicianIds(sheetMusic);
+        boolean scopeChanged = sheetMusic.isAllScope() != request.allScope()
+                || !currentGroupIds.equals(scope.groupIds())
+                || !currentMusicianIds.equals(scope.musicianIds());
+        boolean changed = !Objects.equals(sheetMusic.getTitle(), request.title())
+                || !Objects.equals(sheetMusic.getComposer(), request.composer())
+                || !Objects.equals(sheetMusic.getCollection().getId(), collection.getId())
+                || scopeChanged;
+        if (!changed) {
+            return sheetMusic;
+        }
+
+        sheetMusic.setTitle(request.title());
+        sheetMusic.setComposer(request.composer());
+        sheetMusic.setCollection(collection);
+        sheetMusic.setAllScope(request.allScope());
+        sheetMusic.touch(clock.instant());
+        if (scopeChanged) {
+            accessGrantService.replaceAccessScope(sheetMusic, scope);
+        }
+        try {
+            sheetMusicRepository.saveAndFlush(sheetMusic);
+        } catch (org.springframework.orm.ObjectOptimisticLockingFailureException e) {
+            throw new ConcurrentSheetMusicModificationException();
+        }
+        auditService.record(actor.getId(), "SHEET_MUSIC_UPDATED", "SheetMusic", sheetMusicId,
+                "title=" + request.title());
+        return sheetMusic;
+    }
+
+    public void delete(UserAccount actor, Long sheetMusicId, Long version) {
+        permissionService.requirePermission(actor, Permission.MANAGE_SHEET_MUSIC);
+        SheetMusic sheetMusic = requireManagedSheetMusic(sheetMusicId);
+        if (!Objects.equals(version, sheetMusic.getVersion())) {
+            throw new ConcurrentSheetMusicModificationException();
+        }
+        String storageKey = sheetMusic.getStorageKey();
+        accessGrantService.replaceAccessScope(sheetMusic,
+                new SheetMusicAccessGrantService.ScopeTargets(List.of(), List.of()));
+        sheetMusicRepository.delete(sheetMusic);
+        sheetMusicRepository.flush();
+        fileDeletionQueue.enqueue(storageKey);
+        auditService.record(actor.getId(), "SHEET_MUSIC_DELETED", "SheetMusic", sheetMusicId);
     }
 
     @Transactional(readOnly = true)
@@ -212,5 +291,26 @@ public class SheetMusicService {
     private Collection requireCollection(Long collectionId) {
         return collectionRepository.findById(collectionId)
                 .orElseThrow(() -> new CollectionNotFoundException(collectionId));
+    }
+
+    private SheetMusic requireManagedSheetMusic(Long id) {
+        return sheetMusicRepository.findByIdForUpdate(id)
+                .filter(SheetMusic::isActive)
+                .orElseThrow(() -> new SheetMusicNotFoundException(id));
+    }
+
+    private void requireMetadataLengths(String title, String composer, String originalFilename, String contentType) {
+        if (title == null || title.isBlank() || title.length() > 255) {
+            throw new InvalidSheetMusicDataException("title must contain between 1 and 255 characters");
+        }
+        if (composer != null && composer.length() > 255) {
+            throw new InvalidSheetMusicDataException("composer must contain at most 255 characters");
+        }
+        if (originalFilename != null && originalFilename.length() > 255) {
+            throw new InvalidSheetMusicDataException("originalFilename must contain at most 255 characters");
+        }
+        if (contentType != null && contentType.length() > 255) {
+            throw new InvalidSheetMusicDataException("contentType must contain at most 255 characters");
+        }
     }
 }

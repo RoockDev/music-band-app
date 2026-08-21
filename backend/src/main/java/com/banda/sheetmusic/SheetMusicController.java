@@ -2,6 +2,7 @@ package com.banda.sheetmusic;
 
 import com.banda.sheetmusic.dto.SheetMusicResponse;
 import com.banda.sheetmusic.dto.UploadSheetMusicRequest;
+import com.banda.sheetmusic.dto.UpdateSheetMusicRequest;
 import com.banda.users.UserAccount;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpHeaders;
@@ -12,9 +13,12 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -39,9 +43,12 @@ import java.util.Map;
 public class SheetMusicController {
 
     private final SheetMusicService sheetMusicService;
+    private final SheetMusicAccessGrantService accessGrantService;
 
-    public SheetMusicController(SheetMusicService sheetMusicService) {
+    public SheetMusicController(SheetMusicService sheetMusicService,
+                                SheetMusicAccessGrantService accessGrantService) {
         this.sheetMusicService = sheetMusicService;
+        this.accessGrantService = accessGrantService;
     }
 
     /**
@@ -56,13 +63,13 @@ public class SheetMusicController {
                                                        @RequestParam("file") MultipartFile file) throws IOException {
         SheetMusic saved = sheetMusicService.upload(actor, request, file.getOriginalFilename(),
                 file.getContentType(), file.getInputStream());
-        return ResponseEntity.status(HttpStatus.CREATED).body(SheetMusicResponse.from(saved));
+        return ResponseEntity.status(HttpStatus.CREATED).body(response(saved));
     }
 
     @GetMapping
     public List<SheetMusicResponse> list(@AuthenticationPrincipal UserAccount actor) {
         return sheetMusicService.list(actor).stream()
-                .map(SheetMusicResponse::from)
+                .map(this::response)
                 .toList();
     }
 
@@ -70,8 +77,21 @@ public class SheetMusicController {
     @GetMapping("/admin")
     public List<SheetMusicResponse> listManaged(@AuthenticationPrincipal UserAccount actor) {
         return sheetMusicService.listManaged(actor).stream()
-                .map(SheetMusicResponse::from)
+                .map(this::response)
                 .toList();
+    }
+
+    @PutMapping("/{id}")
+    public SheetMusicResponse update(@AuthenticationPrincipal UserAccount actor, @PathVariable Long id,
+                                     @Valid @RequestBody UpdateSheetMusicRequest request) {
+        return response(sheetMusicService.update(actor, id, request));
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> delete(@AuthenticationPrincipal UserAccount actor, @PathVariable Long id,
+                                       @RequestParam Long version) {
+        sheetMusicService.delete(actor, id, version);
+        return ResponseEntity.noContent().build();
     }
 
     /**
@@ -86,8 +106,7 @@ public class SheetMusicController {
      * ({@link SheetMusicService#upload}), so {@link MediaType#parseMediaType} below should
      * never see anything it can't parse. The catch is defense-in-depth only, for any
      * old/edge-case row that predates the allow-list: a malformed stored value degrades to a
-     * generic {@link MediaType#APPLICATION_OCTET_STREAM} download rather than a 500, since no
-     * update/delete endpoint exists yet to ever repair such a row in place.
+     * generic {@link MediaType#APPLICATION_OCTET_STREAM} download rather than a 500.
      *
      * <p>{@code filename} comes from the caller-supplied {@code originalFilename} at upload
      * time (never sanitized there, only stored verbatim for display purposes — see
@@ -117,6 +136,11 @@ public class SheetMusicController {
         } catch (InvalidMediaTypeException e) {
             return MediaType.APPLICATION_OCTET_STREAM;
         }
+    }
+
+    private SheetMusicResponse response(SheetMusic sheetMusic) {
+        return SheetMusicResponse.from(sheetMusic, accessGrantService.groupIds(sheetMusic),
+                accessGrantService.musicianIds(sheetMusic));
     }
 
     /** Strips CR/LF (header-injection vector) and escapes any remaining {@code "} so it can't
@@ -153,5 +177,16 @@ public class SheetMusicController {
     @ExceptionHandler(SheetMusicStorageException.class)
     public ResponseEntity<Map<String, String>> handleStorageFailure(SheetMusicStorageException e) {
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of("error", "Service temporarily unavailable"));
+    }
+
+    @ExceptionHandler(InvalidSheetMusicDataException.class)
+    public ResponseEntity<Map<String, String>> handleInvalidData(InvalidSheetMusicDataException e) {
+        return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+    }
+
+    @ExceptionHandler(ConcurrentSheetMusicModificationException.class)
+    public ResponseEntity<Map<String, String>> handleConcurrentModification(
+            ConcurrentSheetMusicModificationException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", e.getMessage()));
     }
 }

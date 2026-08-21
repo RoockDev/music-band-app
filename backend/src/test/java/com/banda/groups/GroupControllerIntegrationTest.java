@@ -2,10 +2,20 @@ package com.banda.groups;
 
 import com.banda.audit.AuditLog;
 import com.banda.audit.AuditLogRepository;
+import com.banda.events.Event;
+import com.banda.events.EventGroupAccess;
+import com.banda.events.EventGroupAccessRepository;
+import com.banda.events.EventRepository;
 import com.banda.security.AdminPermission;
 import com.banda.security.AdminPermissionRepository;
 import com.banda.security.Permission;
 import com.banda.security.SecurityConstants;
+import com.banda.sheetmusic.Collection;
+import com.banda.sheetmusic.CollectionRepository;
+import com.banda.sheetmusic.SheetGroupAccess;
+import com.banda.sheetmusic.SheetGroupAccessRepository;
+import com.banda.sheetmusic.SheetMusic;
+import com.banda.sheetmusic.SheetMusicRepository;
 import com.banda.support.IntegrationTestBase;
 import com.banda.users.UserAccount;
 import com.banda.users.UserAccountRepository;
@@ -73,6 +83,21 @@ class GroupControllerIntegrationTest extends IntegrationTestBase {
 
     @Autowired
     private MusicianGroupRepository musicianGroupRepository;
+
+    @Autowired
+    private EventRepository eventRepository;
+
+    @Autowired
+    private EventGroupAccessRepository eventGroupAccessRepository;
+
+    @Autowired
+    private CollectionRepository collectionRepository;
+
+    @Autowired
+    private SheetMusicRepository sheetMusicRepository;
+
+    @Autowired
+    private SheetGroupAccessRepository sheetGroupAccessRepository;
 
     @Autowired
     private AuditLogRepository auditLogRepository;
@@ -187,9 +212,11 @@ class GroupControllerIntegrationTest extends IntegrationTestBase {
                         .cookie(csrf, accessToken)
                         .header("X-XSRF-TOKEN", csrf.getValue())
                         .contentType("application/json")
-                        .content("{\"name\":\"Renamed Group\",\"description\":\"Updated\"}"))
+                        .content("{\"name\":\"Renamed Group\",\"description\":\"Updated\",\"version\":"
+                                + target.getVersion() + "}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.name").value("Renamed Group"));
+                .andExpect(jsonPath("$.name").value("Renamed Group"))
+                .andExpect(jsonPath("$.version").value(target.getVersion() + 1));
 
         List<AuditLog> history = auditLogRepository.findByEntityTypeAndEntityIdOrderByTimestampDescIdDesc(
                 "Group", target.getId());
@@ -209,7 +236,7 @@ class GroupControllerIntegrationTest extends IntegrationTestBase {
                         .cookie(csrf, accessToken)
                         .header("X-XSRF-TOKEN", csrf.getValue())
                         .contentType("application/json")
-                        .content("{\"name\":\"Doesn't matter\"}"))
+                        .content("{\"name\":\"Doesn't matter\",\"version\":0}"))
                 .andExpect(status().isNotFound());
     }
 
@@ -225,7 +252,7 @@ class GroupControllerIntegrationTest extends IntegrationTestBase {
                         .cookie(csrf, accessToken)
                         .header("X-XSRF-TOKEN", csrf.getValue())
                         .contentType("application/json")
-                        .content("{\"name\":\"Hijacked\"}"))
+                        .content("{\"name\":\"Hijacked\",\"version\":" + target.getVersion() + "}"))
                 .andExpect(status().isForbidden());
 
         assertThat(groupRepository.findById(target.getId()).orElseThrow().getName()).isEqualTo("Untouchable Group");
@@ -275,13 +302,13 @@ class GroupControllerIntegrationTest extends IntegrationTestBase {
                             .cookie(csrf, accessToken)
                             .header("X-XSRF-TOKEN", csrf.getValue())
                             .contentType("application/json")
-                            .content("{\"name\":\"Renamed By A\"}"))
+                            .content("{\"name\":\"Renamed By A\",\"version\":" + target.getVersion() + "}"))
                     .andReturn().getResponse().getStatus();
             Callable<Integer> requestB = () -> mockMvc.perform(put("/api/groups/" + target.getId())
                             .cookie(csrf, accessToken)
                             .header("X-XSRF-TOKEN", csrf.getValue())
                             .contentType("application/json")
-                            .content("{\"name\":\"Renamed By B\"}"))
+                            .content("{\"name\":\"Renamed By B\",\"version\":" + target.getVersion() + "}"))
                     .andReturn().getResponse().getStatus();
 
             ExecutorService executor = Executors.newFixedThreadPool(2);
@@ -360,6 +387,32 @@ class GroupControllerIntegrationTest extends IntegrationTestBase {
                 .andExpect(status().isNoContent());
 
         assertThat(groupRepository.findById(target.getId())).isEmpty();
+    }
+
+    @Test
+    void deletingAGroupReportsEventAndSheetMusicDependenciesByType() throws Exception {
+        UserAccount admin = persistActiveAdmin("admin-delete-resource-deps@example.com", "AdminPass1!");
+        adminPermissionRepository.saveAndFlush(new AdminPermission(admin, Permission.MANAGE_GROUPS));
+        Group target = groupRepository.saveAndFlush(new Group("Resource Dependent Group", null, FIXED_NOW));
+        Event event = eventRepository.saveAndFlush(new Event("Scoped Event", null, null,
+                FIXED_NOW.plusSeconds(3600), false, false, FIXED_NOW));
+        eventGroupAccessRepository.saveAndFlush(new EventGroupAccess(event, target));
+        Collection collection = collectionRepository.saveAndFlush(new Collection("Scoped Scores", null, FIXED_NOW));
+        SheetMusic sheetMusic = sheetMusicRepository.saveAndFlush(new SheetMusic("Scoped Sheet", null, collection,
+                "group-dependency-storage-key", "sheet.pdf", "application/pdf", false, FIXED_NOW));
+        sheetGroupAccessRepository.saveAndFlush(new SheetGroupAccess(sheetMusic, target));
+        Cookie csrf = fetchCsrfCookie();
+        Cookie accessToken = loginAndGetAccessTokenCookie(
+                "admin-delete-resource-deps@example.com", "AdminPass1!", csrf);
+
+        mockMvc.perform(delete("/api/groups/" + target.getId())
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value(org.hamcrest.Matchers.containsString("eventGrants=1")))
+                .andExpect(jsonPath("$.error").value(org.hamcrest.Matchers.containsString("sheetMusicGrants=1")));
+
+        assertThat(groupRepository.findById(target.getId())).isPresent();
     }
 
     @Test

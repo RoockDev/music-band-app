@@ -1,11 +1,13 @@
 package com.banda.groups;
 
 import com.banda.audit.AuditService;
+import com.banda.events.EventGroupAccessRepository;
 import com.banda.groups.dto.CreateGroupRequest;
 import com.banda.groups.dto.UpdateGroupRequest;
 import com.banda.security.Permission;
 import com.banda.security.PermissionDeniedException;
 import com.banda.security.PermissionService;
+import com.banda.sheetmusic.SheetGroupAccessRepository;
 import com.banda.users.UserAccount;
 import com.banda.users.UserAccountRepository;
 import com.banda.users.UserRole;
@@ -51,6 +53,8 @@ class GroupServiceTest {
 
     private GroupRepository groupRepository;
     private MusicianGroupRepository musicianGroupRepository;
+    private EventGroupAccessRepository eventGroupAccessRepository;
+    private SheetGroupAccessRepository sheetGroupAccessRepository;
     private UserAccountRepository userAccountRepository;
     private PermissionService permissionService;
     private AuditService auditService;
@@ -60,11 +64,14 @@ class GroupServiceTest {
     void setUp() {
         groupRepository = mock(GroupRepository.class);
         musicianGroupRepository = mock(MusicianGroupRepository.class);
+        eventGroupAccessRepository = mock(EventGroupAccessRepository.class);
+        sheetGroupAccessRepository = mock(SheetGroupAccessRepository.class);
         userAccountRepository = mock(UserAccountRepository.class);
         permissionService = mock(PermissionService.class);
         auditService = mock(AuditService.class);
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
-        groupService = new GroupService(groupRepository, musicianGroupRepository, userAccountRepository,
+        groupService = new GroupService(groupRepository, musicianGroupRepository, eventGroupAccessRepository,
+                sheetGroupAccessRepository, userAccountRepository,
                 permissionService, auditService, clock, new NoOpTransactionManager());
 
         when(groupRepository.saveAndFlush(any(Group.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -78,6 +85,12 @@ class GroupServiceTest {
         UserAccount musician = new UserAccount("musician" + id + "@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, NOW);
         org.springframework.test.util.ReflectionTestUtils.setField(musician, "id", id);
         return musician;
+    }
+
+    private Group versionedGroup(String name, String description) {
+        Group group = new Group(name, description, NOW);
+        org.springframework.test.util.ReflectionTestUtils.setField(group, "version", 0L);
+        return group;
     }
 
     // ---- create() ----
@@ -123,10 +136,10 @@ class GroupServiceTest {
     @Test
     void editUpdatesFieldsAndWritesAnAuditRecord() {
         UserAccount actor = adminActor();
-        Group existing = new Group("Old Name", "Old description", NOW);
-        when(groupRepository.findById(5L)).thenReturn(Optional.of(existing));
+        Group existing = versionedGroup("Old Name", "Old description");
+        when(groupRepository.findByIdForUpdate(5L)).thenReturn(Optional.of(existing));
 
-        Group edited = groupService.edit(actor, 5L, new UpdateGroupRequest("New Name", "New description"));
+        Group edited = groupService.edit(actor, 5L, new UpdateGroupRequest("New Name", "New description", 0L));
 
         assertThat(edited.getName()).isEqualTo("New Name");
         assertThat(edited.getDescription()).isEqualTo("New description");
@@ -137,9 +150,9 @@ class GroupServiceTest {
     @Test
     void editOnAnUnknownGroupThrowsGroupNotFoundException() {
         UserAccount actor = adminActor();
-        when(groupRepository.findById(404L)).thenReturn(Optional.empty());
+        when(groupRepository.findByIdForUpdate(404L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> groupService.edit(actor, 404L, new UpdateGroupRequest("X", null)))
+        assertThatThrownBy(() -> groupService.edit(actor, 404L, new UpdateGroupRequest("X", null, 0L)))
                 .isInstanceOf(GroupNotFoundException.class);
 
         verifyNoInteractions(auditService);
@@ -151,7 +164,7 @@ class GroupServiceTest {
         doThrow(new PermissionDeniedException(Permission.MANAGE_GROUPS))
                 .when(permissionService).requirePermission(actor, Permission.MANAGE_GROUPS);
 
-        assertThatThrownBy(() -> groupService.edit(actor, 1L, new UpdateGroupRequest("X", null)))
+        assertThatThrownBy(() -> groupService.edit(actor, 1L, new UpdateGroupRequest("X", null, 0L)))
                 .isInstanceOf(PermissionDeniedException.class);
 
         verifyNoInteractions(groupRepository);
@@ -160,13 +173,28 @@ class GroupServiceTest {
     @Test
     void editTranslatesALostOptimisticLockRaceIntoAConcurrentGroupModificationException() {
         UserAccount actor = adminActor();
-        Group existing = new Group("Race Group", null, NOW);
-        when(groupRepository.findById(6L)).thenReturn(Optional.of(existing));
+        Group existing = versionedGroup("Race Group", null);
+        when(groupRepository.findByIdForUpdate(6L)).thenReturn(Optional.of(existing));
         when(groupRepository.saveAndFlush(existing))
                 .thenThrow(new ObjectOptimisticLockingFailureException(Group.class, 6L));
 
-        assertThatThrownBy(() -> groupService.edit(actor, 6L, new UpdateGroupRequest("Race Group 2", null)))
+        assertThatThrownBy(() -> groupService.edit(actor, 6L, new UpdateGroupRequest("Race Group 2", null, 0L)))
                 .isInstanceOf(ConcurrentGroupModificationException.class);
+    }
+
+    @Test
+    void editRejectsASequentiallyStaleVersionAndDoesNotAudit() {
+        UserAccount actor = adminActor();
+        Group existing = versionedGroup("Current", null);
+        org.springframework.test.util.ReflectionTestUtils.setField(existing, "version", 2L);
+        when(groupRepository.findByIdForUpdate(61L)).thenReturn(Optional.of(existing));
+
+        assertThatThrownBy(() -> groupService.edit(
+                actor, 61L, new UpdateGroupRequest("Stale", null, 1L)))
+                .isInstanceOf(ConcurrentGroupModificationException.class);
+
+        assertThat(existing.getName()).isEqualTo("Current");
+        verifyNoInteractions(auditService);
     }
 
     // ---- delete() ----
@@ -174,9 +202,8 @@ class GroupServiceTest {
     @Test
     void deleteRemovesAnEmptyGroupAndWritesAnAuditRecord() {
         UserAccount actor = adminActor();
-        Group existing = new Group("Empty Group", null, NOW);
+        Group existing = versionedGroup("Empty Group", null);
         when(groupRepository.findById(7L)).thenReturn(Optional.of(existing));
-        when(musicianGroupRepository.existsByGroup(existing)).thenReturn(false);
 
         groupService.delete(actor, 7L);
 
@@ -187,12 +214,17 @@ class GroupServiceTest {
     @Test
     void deleteOnAGroupWithMembersThrowsGroupInUseException() {
         UserAccount actor = adminActor();
-        Group existing = new Group("Occupied Group", null, NOW);
+        Group existing = versionedGroup("Occupied Group", null);
         when(groupRepository.findById(8L)).thenReturn(Optional.of(existing));
-        when(musicianGroupRepository.existsByGroup(existing)).thenReturn(true);
+        when(musicianGroupRepository.countByGroup(existing)).thenReturn(2L);
+        when(eventGroupAccessRepository.countByGroup(existing)).thenReturn(1L);
+        when(sheetGroupAccessRepository.countByGroup(existing)).thenReturn(3L);
 
         assertThatThrownBy(() -> groupService.delete(actor, 8L))
-                .isInstanceOf(GroupInUseException.class);
+                .isInstanceOf(GroupInUseException.class)
+                .hasMessageContaining("musicianMemberships=2")
+                .hasMessageContaining("eventGrants=1")
+                .hasMessageContaining("sheetMusicGrants=3");
 
         verify(groupRepository, never()).delete(any());
         verifyNoInteractions(auditService);
@@ -224,10 +256,8 @@ class GroupServiceTest {
     @Test
     void deleteTranslatesALostConcurrentAssignRaceIntoAGroupInUseException() {
         UserAccount actor = adminActor();
-        Group existing = new Group("TOCTOU Group", null, NOW);
+        Group existing = versionedGroup("TOCTOU Group", null);
         when(groupRepository.findById(9L)).thenReturn(Optional.of(existing));
-        // The up-front check passes (no members yet)...
-        when(musicianGroupRepository.existsByGroup(existing)).thenReturn(false);
         // ...but a concurrent assignMusician() call committed between that check and the
         // actual delete. In real Hibernate the DELETE statement (and thus the FK violation)
         // fires on flush(), not on delete() itself — delete() just marks the entity for

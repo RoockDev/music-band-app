@@ -10,4 +10,10 @@ public interface SheetGroupAccessRepository extends JpaRepository<SheetGroupAcce
     /** {@link SheetMusicAccessService#canAccess} uses this for the "any group in
      * {@code sheet_group_access}" arm of the union check. */
     boolean existsBySheetMusicAndGroupIn(SheetMusic sheetMusic, List<Group> groups);
+
+    List<SheetGroupAccess> findBySheetMusic(SheetMusic sheetMusic);
+
+    long countByGroup(Group group);
+
+    long deleteBySheetMusic(SheetMusic sheetMusic);
 }

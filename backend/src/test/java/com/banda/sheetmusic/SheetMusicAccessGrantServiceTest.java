@@ -21,6 +21,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -124,5 +125,38 @@ class SheetMusicAccessGrantServiceTest {
         accessGrantService.applyAccessScope(sheetMusic, null, null);
 
         verifyNoInteractions(sheetGroupAccessRepository, sheetMusicianAccessRepository);
+    }
+
+    @Test
+    void duplicateScopeIdsAreDeduplicatedBeforePersistence() {
+        Group group = new Group("Brass", null, NOW);
+        ReflectionTestUtils.setField(group, "id", 5L);
+        when(groupRepository.findById(5L)).thenReturn(Optional.of(group));
+
+        accessGrantService.applyAccessScope(sheetMusic, List.of(5L, 5L, 5L), null);
+
+        verify(groupRepository, times(1)).findById(5L);
+        verify(sheetGroupAccessRepository, times(1)).saveAndFlush(any(SheetGroupAccess.class));
+    }
+
+    @Test
+    void allScopeCannotBeCombinedWithExplicitGrants() {
+        assertThatThrownBy(() -> accessGrantService.resolveScope(true, List.of(5L), List.of()))
+                .isInstanceOf(InvalidSheetMusicDataException.class)
+                .hasMessageContaining("allScope");
+
+        verifyNoInteractions(groupRepository, userAccountRepository);
+    }
+
+    @Test
+    void nullZeroAndNegativeIdsAreRejectedBeforeRepositoryAccess() {
+        assertThatThrownBy(() -> accessGrantService.resolveScope(false, java.util.Arrays.asList(1L, null), List.of()))
+                .isInstanceOf(InvalidSheetMusicDataException.class);
+        assertThatThrownBy(() -> accessGrantService.resolveScope(false, List.of(0L), List.of()))
+                .isInstanceOf(InvalidSheetMusicDataException.class);
+        assertThatThrownBy(() -> accessGrantService.resolveScope(false, List.of(-1L), List.of()))
+                .isInstanceOf(InvalidSheetMusicDataException.class);
+
+        verifyNoInteractions(groupRepository, userAccountRepository);
     }
 }

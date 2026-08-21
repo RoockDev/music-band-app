@@ -7,7 +7,9 @@ import com.banda.users.UserAccountRepository;
 import com.banda.users.UserRole;
 import org.springframework.stereotype.Service;
 
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Write-side counterpart to {@link SheetMusicAccessService} (which owns the read-side
@@ -49,18 +51,56 @@ public class SheetMusicAccessGrantService {
      * an already-stored file) that must not survive this failing partway through.
      */
     public void applyAccessScope(SheetMusic sheetMusic, List<Long> groupIds, List<Long> musicianIds) {
-        if (groupIds != null) {
-            for (Long groupId : groupIds) {
-                Group group = requireGroup(groupId);
-                sheetGroupAccessRepository.saveAndFlush(new SheetGroupAccess(sheetMusic, group));
-            }
+        applyAccessScope(sheetMusic, resolveScope(false, groupIds, musicianIds));
+    }
+
+    public ScopeTargets resolveScope(boolean allScope, List<Long> groupIds, List<Long> musicianIds) {
+        Set<Long> uniqueGroupIds = normalizeIds(groupIds, "groupIds");
+        Set<Long> uniqueMusicianIds = normalizeIds(musicianIds, "musicianIds");
+        if (allScope && (!uniqueGroupIds.isEmpty() || !uniqueMusicianIds.isEmpty())) {
+            throw new InvalidSheetMusicDataException(
+                    "allScope cannot be combined with group or musician grants");
         }
-        if (musicianIds != null) {
-            for (Long musicianId : musicianIds) {
-                UserAccount musician = requireMusician(musicianId);
-                sheetMusicianAccessRepository.saveAndFlush(new SheetMusicianAccess(sheetMusic, musician));
-            }
+        List<Group> groups = uniqueGroupIds.stream().map(this::requireGroup).toList();
+        List<UserAccount> musicians = uniqueMusicianIds.stream().map(this::requireMusician).toList();
+        return new ScopeTargets(groups, musicians);
+    }
+
+    public void applyAccessScope(SheetMusic sheetMusic, ScopeTargets scope) {
+        scope.groups().forEach(group ->
+                sheetGroupAccessRepository.saveAndFlush(new SheetGroupAccess(sheetMusic, group)));
+        scope.musicians().forEach(musician ->
+                sheetMusicianAccessRepository.saveAndFlush(new SheetMusicianAccess(sheetMusic, musician)));
+    }
+
+    public void replaceAccessScope(SheetMusic sheetMusic, ScopeTargets scope) {
+        sheetGroupAccessRepository.deleteBySheetMusic(sheetMusic);
+        sheetMusicianAccessRepository.deleteBySheetMusic(sheetMusic);
+        applyAccessScope(sheetMusic, scope);
+    }
+
+    public List<Long> groupIds(SheetMusic sheetMusic) {
+        return sheetGroupAccessRepository.findBySheetMusic(sheetMusic).stream()
+                .map(grant -> grant.getGroup().getId()).sorted().toList();
+    }
+
+    public List<Long> musicianIds(SheetMusic sheetMusic) {
+        return sheetMusicianAccessRepository.findBySheetMusic(sheetMusic).stream()
+                .map(grant -> grant.getMusician().getId()).sorted().toList();
+    }
+
+    private Set<Long> normalizeIds(List<Long> ids, String fieldName) {
+        LinkedHashSet<Long> unique = new LinkedHashSet<>();
+        if (ids == null) {
+            return unique;
         }
+        for (Long id : ids) {
+            if (id == null || id <= 0) {
+                throw new InvalidSheetMusicDataException(fieldName + " must contain only positive, non-null ids");
+            }
+            unique.add(id);
+        }
+        return unique;
     }
 
     private Group requireGroup(Long groupId) {
@@ -76,5 +116,16 @@ public class SheetMusicAccessGrantService {
             throw new MusicianNotFoundException(musicianId);
         }
         return account;
+    }
+
+    public record ScopeTargets(List<Group> groups, List<UserAccount> musicians) {
+
+        public List<Long> groupIds() {
+            return groups.stream().map(Group::getId).sorted().toList();
+        }
+
+        public List<Long> musicianIds() {
+            return musicians.stream().map(UserAccount::getId).sorted().toList();
+        }
     }
 }

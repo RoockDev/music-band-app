@@ -127,7 +127,7 @@ class GroupServiceDeleteRaceIntegrationTest extends IntegrationTestBase {
          * Wraps the real {@code musicianGroupRepository} bean so {@link GroupService} (and
          * everything else in the context) transparently uses this proxy instead — {@code
          * @Primary} wins autowiring over the original bean. Every call is delegated to the
-         * real repository untouched; only {@code existsByGroup} additionally pauses the
+         * real repository untouched; only {@code countByGroup} additionally pauses the
          * calling thread (the delete thread) after computing the real result, releasing the
          * assign thread and waiting for its real, committed insert before returning that
          * already-computed result back to {@link GroupService#delete}.
@@ -146,7 +146,7 @@ class GroupServiceDeleteRaceIntegrationTest extends IntegrationTestBase {
                         } catch (InvocationTargetException e) {
                             throw e.getCause();
                         }
-                        if ("existsByGroup".equals(method.getName()) && checkPassedLatch != null) {
+                        if ("countByGroup".equals(method.getName()) && checkPassedLatch != null) {
                             checkPassedLatch.countDown();
                             assignCommittedLatch.await(5, TimeUnit.SECONDS);
                         }

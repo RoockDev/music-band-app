@@ -9,11 +9,12 @@ public record GroupResponse(
         String name,
         String description,
         Instant createdAt,
-        Instant updatedAt
+        Instant updatedAt,
+        Long version
 ) {
 
     public static GroupResponse from(Group group) {
         return new GroupResponse(group.getId(), group.getName(), group.getDescription(),
-                group.getCreatedAt(), group.getUpdatedAt());
+                group.getCreatedAt(), group.getUpdatedAt(), group.getVersion());
     }
 }

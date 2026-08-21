@@ -9,7 +9,13 @@ package com.banda.groups;
  */
 public class GroupInUseException extends RuntimeException {
 
+    public GroupInUseException(long musicianMemberships, long eventGrants, long sheetMusicGrants) {
+        super("Group cannot be deleted while dependencies remain: musicianMemberships=" + musicianMemberships
+                + ", eventGrants=" + eventGrants + ", sheetMusicGrants=" + sheetMusicGrants
+                + ". Remove memberships and resource grants before retrying");
+    }
+
     public GroupInUseException() {
-        super("Group has members and cannot be deleted; remove all musicians from it first");
+        this(0, 0, 0);
     }
 }

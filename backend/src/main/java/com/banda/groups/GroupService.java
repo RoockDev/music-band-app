@@ -3,8 +3,10 @@ package com.banda.groups;
 import com.banda.audit.AuditService;
 import com.banda.groups.dto.CreateGroupRequest;
 import com.banda.groups.dto.UpdateGroupRequest;
+import com.banda.events.EventGroupAccessRepository;
 import com.banda.security.Permission;
 import com.banda.security.PermissionService;
+import com.banda.sheetmusic.SheetGroupAccessRepository;
 import com.banda.users.UserAccount;
 import com.banda.users.UserAccountRepository;
 import com.banda.users.UserRole;
@@ -21,6 +23,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Section 4 (Groups) use cases: admin-driven CRUD over {@link Group} plus musician↔group
@@ -33,8 +36,8 @@ import java.util.List;
  * the same contract {@link PermissionService} and {@link AuditService} themselves document.
  *
  * <p><b>"Delete in-use group" guard (Section 4, design decision #7):</b> {@link #delete}
- * rejects (409 {@link GroupInUseException}) any group that still has {@code musician_group}
- * member rows, checked up front via {@code existsByGroup}. This is deliberately the
+ * rejects (409 {@link GroupInUseException}) any group that still has musician memberships,
+ * event grants, or sheet-music grants. This is deliberately the
  * "block until members are removed" interpretation, not cascade-delete or an
  * auto-reassignment flag: cascading would silently orphan/destroy access data, which the
  * spec explicitly forbids ("no silent orphaned scope"). The admin must
@@ -59,6 +62,8 @@ public class GroupService {
 
     private final GroupRepository groupRepository;
     private final MusicianGroupRepository musicianGroupRepository;
+    private final EventGroupAccessRepository eventGroupAccessRepository;
+    private final SheetGroupAccessRepository sheetGroupAccessRepository;
     private final UserAccountRepository userAccountRepository;
     private final PermissionService permissionService;
     private final AuditService auditService;
@@ -67,6 +72,8 @@ public class GroupService {
 
     public GroupService(GroupRepository groupRepository,
                          MusicianGroupRepository musicianGroupRepository,
+                         EventGroupAccessRepository eventGroupAccessRepository,
+                         SheetGroupAccessRepository sheetGroupAccessRepository,
                          UserAccountRepository userAccountRepository,
                          PermissionService permissionService,
                          AuditService auditService,
@@ -74,6 +81,8 @@ public class GroupService {
                          PlatformTransactionManager transactionManager) {
         this.groupRepository = groupRepository;
         this.musicianGroupRepository = musicianGroupRepository;
+        this.eventGroupAccessRepository = eventGroupAccessRepository;
+        this.sheetGroupAccessRepository = sheetGroupAccessRepository;
         this.userAccountRepository = userAccountRepository;
         this.permissionService = permissionService;
         this.auditService = auditService;
@@ -97,7 +106,16 @@ public class GroupService {
 
     public Group edit(UserAccount actor, Long groupId, UpdateGroupRequest request) {
         permissionService.requirePermission(actor, Permission.MANAGE_GROUPS);
-        Group group = requireGroup(groupId);
+        Group group = requireGroupForUpdate(groupId);
+
+        if (!Objects.equals(request.version(), group.getVersion())) {
+            throw new ConcurrentGroupModificationException();
+        }
+        boolean changed = !Objects.equals(group.getName(), request.name())
+                || !Objects.equals(group.getDescription(), request.description());
+        if (!changed) {
+            return group;
+        }
 
         group.setName(request.name());
         group.setDescription(request.description());
@@ -119,7 +137,7 @@ public class GroupService {
 
     /**
      * Section 4 "Delete in-use group" scenario. See the class-level Javadoc for the full
-     * rationale. The up-front {@code existsByGroup} check is the primary, user-friendly
+     * rationale. The up-front dependency counts are the primary, user-friendly
      * guard; the {@link DataIntegrityViolationException} catch around the actual delete is
      * the TOCTOU backstop for a concurrent {@link #assignMusician} that lands between that
      * check and this method's own delete — the {@code musician_group.group_id} FK (no
@@ -140,8 +158,11 @@ public class GroupService {
         permissionService.requirePermission(actor, Permission.MANAGE_GROUPS);
         Group group = requireGroup(groupId);
 
-        if (musicianGroupRepository.existsByGroup(group)) {
-            throw new GroupInUseException();
+        long musicianMemberships = musicianGroupRepository.countByGroup(group);
+        long eventGrants = eventGroupAccessRepository.countByGroup(group);
+        long sheetMusicGrants = sheetGroupAccessRepository.countByGroup(group);
+        if (musicianMemberships > 0 || eventGrants > 0 || sheetMusicGrants > 0) {
+            throw new GroupInUseException(musicianMemberships, eventGrants, sheetMusicGrants);
         }
 
         try {
@@ -236,6 +257,10 @@ public class GroupService {
 
     private Group requireGroup(Long groupId) {
         return groupRepository.findById(groupId).orElseThrow(() -> new GroupNotFoundException(groupId));
+    }
+
+    private Group requireGroupForUpdate(Long groupId) {
+        return groupRepository.findByIdForUpdate(groupId).orElseThrow(() -> new GroupNotFoundException(groupId));
     }
 
     /**

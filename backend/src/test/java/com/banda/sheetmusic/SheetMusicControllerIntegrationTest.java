@@ -3,6 +3,8 @@ package com.banda.sheetmusic;
 import com.banda.audit.AuditLog;
 import com.banda.audit.AuditLogRepository;
 import com.banda.common.FileStorage;
+import com.banda.groups.Group;
+import com.banda.groups.GroupRepository;
 import com.banda.security.AdminPermission;
 import com.banda.security.AdminPermissionRepository;
 import com.banda.security.Permission;
@@ -35,9 +37,12 @@ import java.time.ZoneOffset;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -69,6 +74,15 @@ class SheetMusicControllerIntegrationTest extends IntegrationTestBase {
 
     @Autowired
     private SheetMusicRepository sheetMusicRepository;
+
+    @Autowired
+    private SheetGroupAccessRepository sheetGroupAccessRepository;
+
+    @Autowired
+    private SheetMusicianAccessRepository sheetMusicianAccessRepository;
+
+    @Autowired
+    private GroupRepository groupRepository;
 
     @Autowired
     private AuditLogRepository auditLogRepository;
@@ -191,6 +205,98 @@ class SheetMusicControllerIntegrationTest extends IntegrationTestBase {
                 .andExpect(status().isBadRequest());
 
         assertThat(sheetMusicRepository.findAll().stream().anyMatch(sm -> sm.getTitle().equals("Rejected Upload"))).isFalse();
+    }
+
+    @Test
+    void allScopeWithExplicitGrantsIsRejectedBeforeTheFileIsStored() throws Exception {
+        UserAccount admin = persistActiveAdmin("admin-upload-invalid-scope@example.com", "AdminPass1!");
+        adminPermissionRepository.saveAndFlush(new AdminPermission(admin, Permission.MANAGE_SHEET_MUSIC));
+        Collection collection = collectionRepository.saveAndFlush(new Collection("Invalid Scope", null, FIXED_NOW));
+        Group group = groupRepository.saveAndFlush(new Group("Invalid Scope Group", null, FIXED_NOW));
+        Cookie csrf = fetchCsrfCookie();
+        Cookie accessToken = loginAndGetAccessTokenCookie(
+                "admin-upload-invalid-scope@example.com", "AdminPass1!", csrf);
+        Path baseDir = (Path) ReflectionTestUtils.getField(fileStorage, "baseDir");
+        long filesBefore = countFilesInBaseDir(baseDir);
+
+        mockMvc.perform(multipart("/api/sheet-music")
+                        .file(new MockMultipartFile("file", "scope.pdf", "application/pdf", "bytes".getBytes()))
+                        .param("title", "Invalid Scope Upload")
+                        .param("collectionId", collection.getId().toString())
+                        .param("allScope", "true")
+                        .param("groupIds", group.getId().toString())
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue()))
+                .andExpect(status().isBadRequest());
+
+        assertThat(countFilesInBaseDir(baseDir)).isEqualTo(filesBefore);
+    }
+
+    @Test
+    void sheetMusicMetadataScopeAndDeletionCompleteTheAdministrativeLifecycle() throws Exception {
+        UserAccount admin = persistActiveAdmin("admin-sheet-lifecycle@example.com", "AdminPass1!");
+        adminPermissionRepository.saveAndFlush(new AdminPermission(admin, Permission.MANAGE_SHEET_MUSIC));
+        UserAccount musician = userAccountRepository.saveAndFlush(
+                new UserAccount("sheet-lifecycle-musician@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, FIXED_NOW));
+        Group group = groupRepository.saveAndFlush(new Group("Sheet Lifecycle Group", null, FIXED_NOW));
+        Collection originalCollection = collectionRepository.saveAndFlush(
+                new Collection("Sheet Lifecycle Original", null, FIXED_NOW));
+        Collection destinationCollection = collectionRepository.saveAndFlush(
+                new Collection("Sheet Lifecycle Destination", null, FIXED_NOW));
+        Cookie csrf = fetchCsrfCookie();
+        Cookie accessToken = loginAndGetAccessTokenCookie("admin-sheet-lifecycle@example.com", "AdminPass1!", csrf);
+
+        MvcResult created = mockMvc.perform(multipart("/api/sheet-music")
+                        .file(new MockMultipartFile("file", "lifecycle.pdf", "application/pdf", "bytes".getBytes()))
+                        .param("title", "Lifecycle Original")
+                        .param("collectionId", originalCollection.getId().toString())
+                        .param("allScope", "false")
+                        .param("groupIds", group.getId().toString(), group.getId().toString())
+                        .param("musicianIds", musician.getId().toString(), musician.getId().toString())
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue()))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.groupIds.length()").value(1))
+                .andExpect(jsonPath("$.musicianIds.length()").value(1))
+                .andReturn();
+        Long id = extractId(created);
+        SheetMusic persisted = sheetMusicRepository.findById(id).orElseThrow();
+        String storageKey = persisted.getStorageKey();
+        long initialVersion = persisted.getVersion();
+
+        mockMvc.perform(put("/api/sheet-music/" + id)
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue())
+                        .contentType("application/json")
+                        .content("{\"title\":\"Lifecycle Updated\",\"composer\":\"Composer\","
+                                + "\"collectionId\":" + destinationCollection.getId() + ",\"allScope\":true,"
+                                + "\"groupIds\":[],\"musicianIds\":[],\"version\":" + initialVersion + "}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("Lifecycle Updated"))
+                .andExpect(jsonPath("$.allScope").value(true))
+                .andExpect(jsonPath("$.version").value(initialVersion + 1));
+
+        assertThat(sheetMusicRepository.findById(id).orElseThrow().getStorageKey()).isEqualTo(storageKey);
+        assertThat(sheetGroupAccessRepository.findBySheetMusic(persisted)).isEmpty();
+        assertThat(sheetMusicianAccessRepository.findBySheetMusic(persisted)).isEmpty();
+
+        mockMvc.perform(put("/api/sheet-music/" + id)
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue())
+                        .contentType("application/json")
+                        .content("{\"title\":\"Stale overwrite\",\"collectionId\":"
+                                + destinationCollection.getId() + ",\"allScope\":true,\"groupIds\":[],"
+                                + "\"musicianIds\":[],\"version\":" + initialVersion + "}"))
+                .andExpect(status().isConflict());
+
+        mockMvc.perform(delete("/api/sheet-music/" + id)
+                        .param("version", String.valueOf(initialVersion + 1))
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue()))
+                .andExpect(status().isNoContent());
+
+        assertThat(sheetMusicRepository.findById(id)).isEmpty();
+        assertThatThrownBy(() -> fileStorage.retrieve(storageKey)).isInstanceOf(java.io.IOException.class);
     }
 
     /** Resilience fix: {@code fileStorage.store} runs before the group/musician access-scope

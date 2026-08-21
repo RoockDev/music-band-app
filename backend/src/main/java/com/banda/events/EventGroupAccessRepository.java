@@ -12,4 +12,6 @@ public interface EventGroupAccessRepository extends JpaRepository<EventGroupAcce
     boolean existsByEventAndGroupIn(Event event, List<Group> groups);
 
     List<EventGroupAccess> findByEvent(Event event);
+
+    long countByGroup(Group group);
 }

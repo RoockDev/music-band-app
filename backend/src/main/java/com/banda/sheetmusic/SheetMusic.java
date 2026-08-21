@@ -30,8 +30,8 @@ import java.time.Instant;
  * <p>{@link #active}: a soft "still part of the library" flag (design doc data model).
  * {@link SheetMusicAccessService}/{@code SheetMusicService#download} both treat an inactive
  * piece as if it does not exist (404), mirroring how a DEACTIVATED {@code UserAccount} is
- * treated by login — no admin-facing toggle endpoint exists yet in this PR's scope (not
- * listed in tasks 6.1-6.3); it defaults to {@code true} on upload.
+ * treated by login. Administrative deletion now removes the metadata and queues physical
+ * binary deletion after commit; this flag remains a defense-in-depth visibility guard.
  */
 @Entity
 @Table(name = "sheet_music")
@@ -72,9 +72,7 @@ public class SheetMusic {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
-    /** Optimistic lock — same rationale as {@code Group}/{@code UserAccount}'s own
-     * {@code @Version} fields; no concurrent edit path exists yet in this PR, kept for
-     * forward-compatibility. */
+    /** Optimistic lock for metadata/scope updates and deletion. */
     @Version
     @Column(name = "version")
     private Long version;
@@ -109,8 +107,20 @@ public class SheetMusic {
         return composer;
     }
 
+    public void setTitle(String title) {
+        this.title = title;
+    }
+
+    public void setComposer(String composer) {
+        this.composer = composer;
+    }
+
     public Collection getCollection() {
         return collection;
+    }
+
+    public void setCollection(Collection collection) {
+        this.collection = collection;
     }
 
     public String getStorageKey() {
@@ -129,6 +139,10 @@ public class SheetMusic {
         return allScope;
     }
 
+    public void setAllScope(boolean allScope) {
+        this.allScope = allScope;
+    }
+
     public boolean isActive() {
         return active;
     }
@@ -139,6 +153,10 @@ public class SheetMusic {
 
     public Instant getUpdatedAt() {
         return updatedAt;
+    }
+
+    public void touch(Instant now) {
+        this.updatedAt = now;
     }
 
     public Long getVersion() {

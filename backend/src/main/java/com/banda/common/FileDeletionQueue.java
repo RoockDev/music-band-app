@@ -1,8 +1,11 @@
 package com.banda.common;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
 
@@ -20,12 +23,15 @@ public class FileDeletionQueue {
     private final PendingFileDeletionRepository repository;
     private final PendingFileDeletionProcessor processor;
     private final Clock clock;
+    private final TransactionTemplate requiresNewTransaction;
 
     public FileDeletionQueue(PendingFileDeletionRepository repository, PendingFileDeletionProcessor processor,
-                             Clock clock) {
+                              Clock clock, PlatformTransactionManager transactionManager) {
         this.repository = repository;
         this.processor = processor;
         this.clock = clock;
+        this.requiresNewTransaction = new TransactionTemplate(transactionManager);
+        this.requiresNewTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
     public void enqueue(String storageKey) {
@@ -40,5 +46,18 @@ public class FileDeletionQueue {
                 processor.process(pending.getId());
             }
         });
+    }
+
+    /**
+     * Tracks an orphan created before a business transaction could commit. The queue row must
+     * survive that transaction's rollback, so it is inserted in an independent transaction.
+     */
+    public void enqueueIndependent(String storageKey) {
+        Long id = requiresNewTransaction.execute(status -> repository.findByStorageKey(storageKey)
+                .orElseGet(() -> repository.saveAndFlush(new PendingFileDeletion(storageKey, clock.instant())))
+                .getId());
+        if (id != null) {
+            processor.process(id);
+        }
     }
 }
