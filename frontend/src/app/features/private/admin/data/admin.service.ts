@@ -19,6 +19,7 @@ import {
   CourseMutation,
   CreateUserResult,
   EventCreateMutation,
+  EventCancellation,
   EventTargetCatalog,
   EventUpdateMutation,
   Group,
@@ -145,10 +146,16 @@ export class AdminService {
       .pipe(switchMap(() => this.http.put<InternalEvent>(`/api/events/${id}`, request)));
   }
 
-  cancelEvent(id: number): Observable<InternalEvent> {
+  cancelEvent(id: number, version: number): Observable<EventCancellation> {
     return this.csrf
       .ensureToken()
-      .pipe(switchMap(() => this.http.post<InternalEvent>(`/api/events/${id}/cancel`, null)));
+      .pipe(
+        switchMap(() =>
+          this.http.post<EventCancellation>(`/api/events/${id}/cancel`, null, {
+            params: { version },
+          }),
+        ),
+      );
   }
 
   getCollections(): Observable<Collection[]> {

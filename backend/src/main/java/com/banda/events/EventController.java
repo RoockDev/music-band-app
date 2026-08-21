@@ -3,6 +3,7 @@ package com.banda.events;
 import com.banda.events.dto.AdminEventResponse;
 import com.banda.events.dto.AdminEventTargetsResponse;
 import com.banda.events.dto.CreateEventRequest;
+import com.banda.events.dto.EventCancellationResponse;
 import com.banda.events.dto.EventResponse;
 import com.banda.events.dto.UpdateEventRequest;
 import com.banda.users.UserAccount;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -97,9 +99,10 @@ public class EventController {
     /** Section 7 "Cancellation" scenario: non-destructive, idempotent — see
      * {@link EventService#cancel}'s own Javadoc. */
     @PostMapping("/{id}/cancel")
-    public EventResponse cancel(@AuthenticationPrincipal UserAccount actor, @PathVariable Long id) {
-        Event cancelled = eventService.cancel(actor, id);
-        return EventResponse.from(cancelled);
+    public EventCancellationResponse cancel(@AuthenticationPrincipal UserAccount actor, @PathVariable Long id,
+                                            @RequestParam Long version) {
+        Event cancelled = eventService.cancel(actor, id, version);
+        return EventCancellationResponse.from(cancelled);
     }
 
     @ExceptionHandler(EventNotFoundException.class)

@@ -366,7 +366,7 @@ class EventServiceTest {
         doThrow(new PermissionDeniedException(Permission.MANAGE_EVENTS))
                 .when(permissionService).requirePermission(actor, Permission.MANAGE_EVENTS);
 
-        assertThatThrownBy(() -> eventService.cancel(actor, 1L))
+        assertThatThrownBy(() -> eventService.cancel(actor, 1L, 0L))
                 .isInstanceOf(PermissionDeniedException.class);
 
         verifyNoInteractions(eventRepository);
@@ -378,7 +378,7 @@ class EventServiceTest {
         Event event = persistedEvent(1L, false, true);
         when(eventRepository.findById(1L)).thenReturn(Optional.of(event));
 
-        Event cancelled = eventService.cancel(actor, 1L);
+        Event cancelled = eventService.cancel(actor, 1L, 0L);
 
         assertThat(cancelled.getStatus()).isEqualTo(EventStatus.CANCELLED);
         assertThat(cancelled.getId()).isEqualTo(1L);
@@ -396,7 +396,7 @@ class EventServiceTest {
         event.cancel();
         when(eventRepository.findById(1L)).thenReturn(Optional.of(event));
 
-        Event result = eventService.cancel(actor, 1L);
+        Event result = eventService.cancel(actor, 1L, 0L);
 
         assertThat(result.getStatus()).isEqualTo(EventStatus.CANCELLED);
         verifyNoInteractions(auditService);
@@ -408,8 +408,22 @@ class EventServiceTest {
         UserAccount actor = adminActor();
         when(eventRepository.findById(404L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> eventService.cancel(actor, 404L))
+        assertThatThrownBy(() -> eventService.cancel(actor, 404L, 0L))
                 .isInstanceOf(EventNotFoundException.class);
+    }
+
+    @Test
+    void cancelRejectsAStaleClientVersionBeforeChangingTheEvent() {
+        UserAccount actor = adminActor();
+        Event event = persistedEvent(1L, false, true);
+        when(eventRepository.findById(1L)).thenReturn(Optional.of(event));
+
+        assertThatThrownBy(() -> eventService.cancel(actor, 1L, 9L))
+                .isInstanceOf(ConcurrentEventModificationException.class);
+
+        assertThat(event.getStatus()).isEqualTo(EventStatus.SCHEDULED);
+        verify(eventRepository, never()).saveAndFlush(any());
+        verifyNoInteractions(auditService);
     }
 
     @Test
@@ -419,7 +433,7 @@ class EventServiceTest {
         when(eventRepository.findById(1L)).thenReturn(Optional.of(event));
         when(eventRepository.saveAndFlush(any(Event.class))).thenThrow(new ObjectOptimisticLockingFailureException(Event.class, 1L));
 
-        assertThatThrownBy(() -> eventService.cancel(actor, 1L))
+        assertThatThrownBy(() -> eventService.cancel(actor, 1L, 0L))
                 .isInstanceOf(ConcurrentEventModificationException.class);
 
         verifyNoInteractions(auditService);

@@ -95,6 +95,13 @@ export interface ManagedEvent extends InternalEvent {
   musicianIds: number[];
 }
 
+export interface EventCancellation {
+  id: number;
+  status: InternalEvent['status'];
+  updatedAt: string;
+  version: number;
+}
+
 export interface EventTarget {
   id: number;
   label: string;

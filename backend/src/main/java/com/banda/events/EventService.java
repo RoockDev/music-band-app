@@ -179,13 +179,14 @@ public class EventService {
         return event;
     }
 
-    public Event cancel(UserAccount actor, Long eventId) {
+    public Event cancel(UserAccount actor, Long eventId, Long version) {
         permissionService.requirePermission(actor, Permission.MANAGE_EVENTS);
         Event event = requireEvent(eventId);
 
         if (event.getStatus() == EventStatus.CANCELLED) {
             return event;
         }
+        requireVersion(event.getVersion(), version);
 
         event.cancel();
         event.touch(clock.instant());

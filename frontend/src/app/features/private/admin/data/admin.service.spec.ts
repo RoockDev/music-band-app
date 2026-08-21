@@ -186,9 +186,9 @@ describe('AdminService', () => {
     expect(updateEvent.request.body).toEqual(update);
     updateEvent.flush({ id: 2, version: 7 });
 
-    service.cancelEvent(2).subscribe();
+    service.cancelEvent(2, 7).subscribe();
     http.expectOne('/api/auth/csrf').flush('');
-    const cancelEvent = http.expectOne('/api/events/2/cancel');
+    const cancelEvent = http.expectOne('/api/events/2/cancel?version=7');
     expect(cancelEvent.request.method).toBe('POST');
     cancelEvent.flush({ id: 2, status: 'CANCELLED' });
 

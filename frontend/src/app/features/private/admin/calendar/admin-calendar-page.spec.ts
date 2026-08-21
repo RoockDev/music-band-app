@@ -97,6 +97,30 @@ describe('AdminCalendarPage scope editing', () => {
     expect(component.editingEvent().version).toBe(3);
     expect(fixture.nativeElement.textContent).toContain('Se han recargado');
   });
+
+  it('sends the event version when cancelling and reloads after a conflict', () => {
+    const fixture = TestBed.createComponent(AdminCalendarPage);
+    fixture.detectChanges();
+    const event = managedEvent({ version: 4 });
+    http.expectOne('/api/events/admin').flush([event]);
+    http.expectOne('/api/events/admin/targets').flush({ groups: [], musicians: [] });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    const component = fixture.componentInstance as any;
+    component.cancel(event);
+    http.expectOne('/api/auth/csrf').flush('');
+    http
+      .expectOne('/api/events/12/cancel?version=4')
+      .flush({}, { status: 409, statusText: 'Conflict' });
+
+    const latest = managedEvent({ version: 5, title: 'Changed elsewhere' });
+    http.expectOne('/api/events/admin').flush([latest]);
+    fixture.detectChanges();
+
+    expect(component.events()[0].version).toBe(5);
+    expect(component.events()[0].title).toBe('Changed elsewhere');
+    expect(fixture.nativeElement.textContent).toContain('Se han recargado');
+  });
 });
 
 function managedEvent(overrides: Record<string, unknown> = {}) {

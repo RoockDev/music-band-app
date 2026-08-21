@@ -207,15 +207,35 @@ export class AdminCalendarPage implements OnInit {
     this.actionId.set(event.id);
     this.actionError.set(null);
     this.admin
-      .cancelEvent(event.id)
+      .cancelEvent(event.id, event.version)
       .pipe(finalize(() => this.actionId.set(null)))
       .subscribe({
         next: (cancelled) =>
           this.events.update((events) =>
             events.map((item) => (item.id === cancelled.id ? { ...item, ...cancelled } : item)),
           ),
-        error: (error: unknown) => this.actionError.set(adminErrorMessage(error, 'eventos')),
+        error: (error: unknown) => this.handleCancellationError(error),
       });
+  }
+
+  private handleCancellationError(error: unknown): void {
+    if (!(error instanceof HttpErrorResponse) || error.status !== 409) {
+      this.actionError.set(adminErrorMessage(error, 'eventos'));
+      return;
+    }
+
+    this.admin.getManagedEvents().subscribe({
+      next: (events) => {
+        this.events.set(this.sort(events));
+        this.actionError.set(
+          'Otra persona modificó el evento. Se han recargado sus datos actuales.',
+        );
+      },
+      error: () =>
+        this.actionError.set(
+          'Hay un conflicto de edición y no se han podido recargar los eventos actuales.',
+        ),
+    });
   }
 
   private handleUpdateError(error: unknown, eventId: number): void {

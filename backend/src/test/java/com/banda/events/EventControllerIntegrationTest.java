@@ -658,6 +658,7 @@ class EventControllerIntegrationTest extends IntegrationTestBase {
         Cookie adminToken = loginAndGetAccessTokenCookie("admin-cancel@example.com", "AdminPass1!", adminCsrf);
 
         mockMvc.perform(post("/api/events/" + target.getId() + "/cancel")
+                        .param("version", target.getVersion().toString())
                         .cookie(adminCsrf, adminToken)
                         .header("X-XSRF-TOKEN", adminCsrf.getValue()))
                 .andExpect(status().isOk())
@@ -689,10 +690,12 @@ class EventControllerIntegrationTest extends IntegrationTestBase {
         Cookie accessToken = loginAndGetAccessTokenCookie("admin-double-cancel@example.com", "AdminPass1!", csrf);
 
         mockMvc.perform(post("/api/events/" + target.getId() + "/cancel")
+                        .param("version", target.getVersion().toString())
                         .cookie(csrf, accessToken)
                         .header("X-XSRF-TOKEN", csrf.getValue()))
                 .andExpect(status().isOk());
         mockMvc.perform(post("/api/events/" + target.getId() + "/cancel")
+                        .param("version", target.getVersion().toString())
                         .cookie(csrf, accessToken)
                         .header("X-XSRF-TOKEN", csrf.getValue()))
                 .andExpect(status().isOk());
@@ -711,11 +714,35 @@ class EventControllerIntegrationTest extends IntegrationTestBase {
         Cookie accessToken = loginAndGetAccessTokenCookie("admin-cancel-nopermission@example.com", "AdminPass1!", csrf);
 
         mockMvc.perform(post("/api/events/" + target.getId() + "/cancel")
+                        .param("version", target.getVersion().toString())
                         .cookie(csrf, accessToken)
                         .header("X-XSRF-TOKEN", csrf.getValue()))
                 .andExpect(status().isForbidden());
 
         assertThat(eventRepository.findById(target.getId()).orElseThrow().getStatus()).isEqualTo(EventStatus.SCHEDULED);
+    }
+
+    @Test
+    void cancelWithAStaleVersionReturnsConflictWithoutCancellingTheEvent() throws Exception {
+        UserAccount admin = persistActive("admin-stale-cancel@example.com", "AdminPass1!", UserRole.ADMIN);
+        adminPermissionRepository.saveAndFlush(new AdminPermission(admin, Permission.MANAGE_EVENTS));
+        Event target = eventRepository.saveAndFlush(
+                new Event("Current event", null, null, FIXED_NOW, false, true, FIXED_NOW));
+        Long staleVersion = target.getVersion();
+        target.setTitle("Changed elsewhere");
+        eventRepository.saveAndFlush(target);
+
+        Cookie csrf = fetchCsrfCookie();
+        Cookie accessToken = loginAndGetAccessTokenCookie("admin-stale-cancel@example.com", "AdminPass1!", csrf);
+
+        mockMvc.perform(post("/api/events/" + target.getId() + "/cancel")
+                        .param("version", staleVersion.toString())
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue()))
+                .andExpect(status().isConflict());
+
+        assertThat(eventRepository.findById(target.getId()).orElseThrow().getStatus())
+                .isEqualTo(EventStatus.SCHEDULED);
     }
 
     @Test
@@ -727,6 +754,7 @@ class EventControllerIntegrationTest extends IntegrationTestBase {
         Cookie accessToken = loginAndGetAccessTokenCookie("admin-cancel-404@example.com", "AdminPass1!", csrf);
 
         mockMvc.perform(post("/api/events/999999/cancel")
+                        .param("version", "0")
                         .cookie(csrf, accessToken)
                         .header("X-XSRF-TOKEN", csrf.getValue()))
                 .andExpect(status().isNotFound());
