@@ -13,6 +13,9 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.util.EnumSet;
+import java.util.Set;
+
 /**
  * Section 2 ("Permission gate") / Section 10 (Admin Panel Permission-Gated Actions):
  * reusable per-action permission-gate check. Holding the base ADMIN role is NEVER
@@ -62,21 +65,24 @@ public class PermissionService {
      * method catches and swallows the exception — cannot poison a transaction this call is
      * nested in; only the failed insert attempt itself rolls back.
      */
-    public void grant(UserAccount admin, Permission permission) {
+    public boolean grant(UserAccount admin, Permission permission) {
         requireNonNullArgs(admin, permission);
         requireAdminRole(admin);
         try {
-            requiresNewTransaction.executeWithoutResult(status -> {
+            return Boolean.TRUE.equals(requiresNewTransaction.execute(status -> {
                 if (!adminPermissionRepository.existsByAdminAndPermission(admin, permission)) {
                     adminPermissionRepository.saveAndFlush(new AdminPermission(admin, permission));
+                    return true;
                 }
-            });
+                return false;
+            }));
         } catch (DataIntegrityViolationException e) {
             // Lost a concurrent grant() race for the same (admin, permission) pair — the
             // other caller's insert already committed. This is the expected, benign no-op
             // this method's own Javadoc promises, not a fault: no ERROR log.
             log.debug("Lost a concurrent grant race for admin {} permission {}; already granted",
                     admin.getId(), permission);
+            return false;
         }
     }
 
@@ -91,9 +97,21 @@ public class PermissionService {
      * accidental gap.
      */
     @Transactional
-    public void revoke(UserAccount admin, Permission permission) {
+    public boolean revoke(UserAccount admin, Permission permission) {
         requireNonNullArgs(admin, permission);
-        adminPermissionRepository.deleteByAdminAndPermission(admin, permission);
+        return adminPermissionRepository.deleteByAdminAndPermission(admin, permission) > 0;
+    }
+
+    /** Returns the explicitly granted permission set for an ADMIN account. */
+    @Transactional(readOnly = true)
+    public Set<Permission> permissionsFor(UserAccount admin) {
+        if (admin == null) {
+            throw new IllegalArgumentException("admin must not be null");
+        }
+        requireAdminRole(admin);
+        EnumSet<Permission> permissions = EnumSet.noneOf(Permission.class);
+        adminPermissionRepository.findByAdmin(admin).forEach(row -> permissions.add(row.getPermission()));
+        return Set.copyOf(permissions);
     }
 
     /**

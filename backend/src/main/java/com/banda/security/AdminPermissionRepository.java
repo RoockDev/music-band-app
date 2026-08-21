@@ -2,6 +2,8 @@ package com.banda.security;
 
 import com.banda.users.UserAccount;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
@@ -21,5 +23,8 @@ public interface AdminPermissionRepository extends JpaRepository<AdminPermission
      * "No EntityManager with actual transaction available".
      */
     @Transactional
-    void deleteByAdminAndPermission(UserAccount admin, Permission permission);
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("delete from AdminPermission adminPermission where adminPermission.admin = :admin"
+            + " and adminPermission.permission = :permission")
+    int deleteByAdminAndPermission(UserAccount admin, Permission permission);
 }

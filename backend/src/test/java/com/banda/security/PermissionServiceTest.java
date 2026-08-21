@@ -82,8 +82,8 @@ class PermissionServiceTest {
         when(adminPermissionRepository.existsByAdminAndPermission(admin, Permission.MANAGE_EVENTS))
                 .thenReturn(false, true);
 
-        permissionService.grant(admin, Permission.MANAGE_EVENTS);
-        permissionService.grant(admin, Permission.MANAGE_EVENTS);
+        assertThat(permissionService.grant(admin, Permission.MANAGE_EVENTS)).isTrue();
+        assertThat(permissionService.grant(admin, Permission.MANAGE_EVENTS)).isFalse();
 
         // saveAndFlush, not save: this forces the unique-constraint check to happen
         // synchronously inside grant() so a lost race is catchable there, matching the
@@ -112,8 +112,7 @@ class PermissionServiceTest {
         when(adminPermissionRepository.saveAndFlush(any(AdminPermission.class)))
                 .thenThrow(new DataIntegrityViolationException("duplicate key value violates unique constraint"));
 
-        assertThatCode(() -> permissionService.grant(admin, Permission.MANAGE_SHEET_MUSIC))
-                .doesNotThrowAnyException();
+        assertThat(permissionService.grant(admin, Permission.MANAGE_SHEET_MUSIC)).isFalse();
     }
 
     @Test
@@ -188,12 +187,16 @@ class PermissionServiceTest {
     }
 
     @Test
-    void revokeDelegatesToTheRepository() {
+    void revokeReportsWhetherTheRepositoryDeletedAGrant() {
         UserAccount admin = adminUser();
+        when(adminPermissionRepository.deleteByAdminAndPermission(admin, Permission.MANAGE_GROUPS))
+                .thenReturn(1, 0);
 
-        permissionService.revoke(admin, Permission.MANAGE_GROUPS);
+        assertThat(permissionService.revoke(admin, Permission.MANAGE_GROUPS)).isTrue();
+        assertThat(permissionService.revoke(admin, Permission.MANAGE_GROUPS)).isFalse();
 
-        verify(adminPermissionRepository).deleteByAdminAndPermission(admin, Permission.MANAGE_GROUPS);
+        verify(adminPermissionRepository, times(2))
+                .deleteByAdminAndPermission(admin, Permission.MANAGE_GROUPS);
     }
 
     private UserAccount adminUser() {

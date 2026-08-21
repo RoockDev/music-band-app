@@ -24,4 +24,9 @@ public interface UserAccountRepository extends JpaRepository<UserAccount, Long> 
     /** Section 9 (Contact Form): {@code ContactService} uses this to notify every currently
      * active admin on a new submission. */
     List<UserAccount> findByRoleAndStatus(UserRole role, UserStatus status);
+
+    /** Locks accounts in stable id order for permission-manager invariant checks. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select account from UserAccount account where account.id in :ids order by account.id")
+    List<UserAccount> findAllByIdForPermissionMutation(@Param("ids") List<Long> ids);
 }
