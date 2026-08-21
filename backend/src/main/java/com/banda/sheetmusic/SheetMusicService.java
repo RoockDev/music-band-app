@@ -15,6 +15,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -126,6 +127,14 @@ public class SheetMusicService {
             // transaction still rolled back cleanly.
             log.warn("Failed to clean up orphaned file {} after a failed upload", storageKey, cleanupFailure);
         }
+    }
+
+    @Transactional(readOnly = true)
+    public List<SheetMusic> list(UserAccount actor) {
+        return sheetMusicRepository.findAll().stream()
+                .filter(SheetMusic::isActive)
+                .filter(sheetMusic -> accessService.canAccess(actor, sheetMusic))
+                .toList();
     }
 
     /**

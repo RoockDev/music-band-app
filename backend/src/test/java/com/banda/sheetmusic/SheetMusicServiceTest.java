@@ -32,6 +32,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -252,6 +253,26 @@ class SheetMusicServiceTest {
                 "piece.pdf", "application/pdf", allScope, NOW);
         org.springframework.test.util.ReflectionTestUtils.setField(sheetMusic, "id", id);
         return sheetMusic;
+    }
+
+    @Test
+    void listReturnsOnlyActiveSheetMusicTheActorCanAccess() {
+        UserAccount actor = new UserAccount("musician@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, NOW);
+        SheetMusic visible = persistedSheetMusic(40L, true);
+        SheetMusic denied = persistedSheetMusic(41L, false);
+        SheetMusic inactive = persistedSheetMusic(42L, true);
+        org.springframework.test.util.ReflectionTestUtils.setField(inactive, "active", false);
+        when(sheetMusicRepository.findAll()).thenReturn(List.of(visible, denied, inactive));
+        when(accessService.canAccess(actor, visible)).thenReturn(true);
+        when(accessService.canAccess(actor, denied)).thenReturn(false);
+
+        List<SheetMusic> result = sheetMusicService.list(actor);
+
+        assertThat(result).containsExactly(visible);
+        verify(accessService).canAccess(actor, visible);
+        verify(accessService).canAccess(actor, denied);
+        verifyNoMoreInteractions(accessService);
+        verifyNoInteractions(permissionService);
     }
 
     @Test

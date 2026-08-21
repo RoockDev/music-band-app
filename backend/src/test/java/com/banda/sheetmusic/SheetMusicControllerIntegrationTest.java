@@ -38,6 +38,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -299,6 +300,34 @@ class SheetMusicControllerIntegrationTest extends IntegrationTestBase {
                         .cookie(csrf, accessToken)
                         .header("X-XSRF-TOKEN", csrf.getValue()))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void listReturnsMetadataOnlyForSheetMusicAccessibleToTheAuthenticatedActor() throws Exception {
+        UserAccount musician = new UserAccount("musician-list@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, FIXED_NOW);
+        musician.setPasswordHash(passwordEncoder.encode("MusicianPass1!"));
+        userAccountRepository.saveAndFlush(musician);
+        Collection collection = collectionRepository.saveAndFlush(new Collection("List Contract", null, FIXED_NOW));
+        sheetMusicRepository.saveAndFlush(new SheetMusic("Visible Piece", "Visible Composer", collection,
+                "visible-storage-key", "visible.pdf", "application/pdf", true, FIXED_NOW));
+        sheetMusicRepository.saveAndFlush(new SheetMusic("Hidden Piece", "Hidden Composer", collection,
+                "hidden-storage-key", "hidden.pdf", "application/pdf", false, FIXED_NOW));
+
+        Cookie csrf = fetchCsrfCookie();
+        Cookie accessToken = loginAndGetAccessTokenCookie("musician-list@example.com", "MusicianPass1!", csrf);
+
+        mockMvc.perform(get("/api/sheet-music").cookie(accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.title == 'Visible Piece')].composer").value("Visible Composer"))
+                .andExpect(jsonPath("$[?(@.title == 'Visible Piece')].collectionId").value(collection.getId().intValue()))
+                .andExpect(jsonPath("$[?(@.title == 'Visible Piece')].storageKey").doesNotExist())
+                .andExpect(jsonPath("$[?(@.title == 'Hidden Piece')]").doesNotExist());
+    }
+
+    @Test
+    void listWithoutAuthenticationIsUnauthorized() throws Exception {
+        mockMvc.perform(get("/api/sheet-music"))
+                .andExpect(status().isUnauthorized());
     }
 
     /** Task 6.2's explicit "no static resource mapping exists" requirement: a raw

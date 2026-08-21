@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -56,6 +57,13 @@ public class SheetMusicController {
         SheetMusic saved = sheetMusicService.upload(actor, request, file.getOriginalFilename(),
                 file.getContentType(), file.getInputStream());
         return ResponseEntity.status(HttpStatus.CREATED).body(SheetMusicResponse.from(saved));
+    }
+
+    @GetMapping
+    public List<SheetMusicResponse> list(@AuthenticationPrincipal UserAccount actor) {
+        return sheetMusicService.list(actor).stream()
+                .map(SheetMusicResponse::from)
+                .toList();
     }
 
     /**
