@@ -12,13 +12,14 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.List;
 
 /**
- * Section 6 (Sheet Music Collections/Folders) minimal create use case: gated by
+ * Section 6 (Sheet Music Collections/Folders) minimal list/create use cases: gated by
  * {@link Permission#MANAGE_SHEET_MUSIC} independent of the base ADMIN role (Sec.2/Sec.10),
  * audited on mutation (Sec.11) — the exact "gate -> mutate -> audit" shape
  * {@code GroupService}/{@code UserService} established, copied here rather than reinvented.
- * Deliberately minimal (create only): before this, no {@code CollectionController} existed
+ * Deliberately minimal (list and create only): before this, no {@code CollectionController} existed
  * at all, so this PR's own upload flow (which hard-requires an existing {@code collectionId})
  * had no way to be exercised end-to-end outside tests seeding a {@link Collection} directly
  * via {@link CollectionRepository}. Full CRUD (rename/delete-with-reassign, mirroring
@@ -59,5 +60,11 @@ public class CollectionService {
         log.info("Collection created: {}", saved.getId());
 
         return saved;
+    }
+
+    @Transactional(readOnly = true)
+    public List<Collection> list(UserAccount actor) {
+        permissionService.requirePermission(actor, Permission.MANAGE_SHEET_MUSIC);
+        return collectionRepository.findAll();
     }
 }

@@ -7,13 +7,16 @@ import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+
 /**
- * Section 6 (Sheet Music Collections/Folders) admin panel surface — minimal create-only, see
+ * Section 6 (Sheet Music Collections/Folders) admin panel surface — minimal list/create, see
  * {@link CollectionService}'s own Javadoc for why. {@code actor} is always resolved from the
  * authenticated principal via {@code @AuthenticationPrincipal} — never from request body
  * data — matching the contract {@code PermissionService}/{@code AuditService} both require of
@@ -32,6 +35,13 @@ public class CollectionController {
 
     public CollectionController(CollectionService collectionService) {
         this.collectionService = collectionService;
+    }
+
+    @GetMapping
+    public List<CollectionResponse> list(@AuthenticationPrincipal UserAccount actor) {
+        return collectionService.list(actor).stream()
+                .map(CollectionResponse::from)
+                .toList();
     }
 
     @PostMapping

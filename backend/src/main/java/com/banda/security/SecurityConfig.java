@@ -80,7 +80,7 @@ public class SecurityConfig {
                         // covered by anyRequest().authenticated() below) for the same
                         // documentation clarity the other feature sections use.
                         .requestMatchers("/api/sheet-music/**").authenticated()
-                        // Section 6: collection management (currently create-only, see
+                        // Section 6: collection management (currently list/create, see
                         // CollectionController's own Javadoc) is admin-panel-only at this
                         // coarse level, same as groups/users -- CollectionService
                         // additionally requires the MANAGE_SHEET_MUSIC permission toggle

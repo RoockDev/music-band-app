@@ -15,6 +15,7 @@ import org.mockito.ArgumentCaptor;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -83,5 +84,30 @@ class CollectionServiceTest {
         assertThat(captor.getValue().getDescription()).isEqualTo("Brass band marches");
         assertThat(saved.getName()).isEqualTo("Marches");
         verify(auditService).record(eq(actor.getId()), eq("COLLECTION_CREATED"), eq("Collection"), any(), anyString());
+    }
+
+    @Test
+    void listRequiresManageSheetMusicPermissionBeforeReadingCollections() {
+        UserAccount actor = adminActor();
+        doThrow(new PermissionDeniedException(Permission.MANAGE_SHEET_MUSIC))
+                .when(permissionService).requirePermission(actor, Permission.MANAGE_SHEET_MUSIC);
+
+        assertThatThrownBy(() -> collectionService.list(actor))
+                .isInstanceOf(PermissionDeniedException.class);
+
+        verifyNoInteractions(collectionRepository);
+    }
+
+    @Test
+    void listReturnsAllCollectionsForAnAuthorizedAdministrator() {
+        UserAccount actor = adminActor();
+        Collection marches = new Collection("Marches", null, NOW);
+        Collection concerts = new Collection("Concerts", null, NOW);
+        when(collectionRepository.findAll()).thenReturn(List.of(marches, concerts));
+
+        List<Collection> result = collectionService.list(actor);
+
+        assertThat(result).containsExactly(marches, concerts);
+        verify(permissionService).requirePermission(actor, Permission.MANAGE_SHEET_MUSIC);
     }
 }

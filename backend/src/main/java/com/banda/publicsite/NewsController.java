@@ -19,7 +19,7 @@ import org.springframework.web.bind.annotation.RestController;
  * data. The actual MANAGE_CONTENT gate and the audit write happen in {@link NewsPostService};
  * this controller only translates HTTP &lt;-&gt; domain calls. The base ADMIN role gate for
  * this whole path is enforced coarsely by {@code SecurityConfig} first, mirroring
- * {@code CollectionController}'s admin-only, create-only panel pattern — the unauthenticated
+ * {@code CollectionController}'s admin-only panel pattern — the unauthenticated
  * public read side lives entirely separately in {@code PublicContentController} under
  * {@code /api/public/**}, never this path. {@code PermissionDeniedException} is handled
  * globally by {@code GlobalExceptionHandler}.

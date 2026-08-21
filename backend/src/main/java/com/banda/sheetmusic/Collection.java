@@ -13,7 +13,7 @@ import java.time.Instant;
 /**
  * Section 6 (Sheet Music Collections/Folders): an admin-managed folder {@link SheetMusic}
  * pieces are organized into — every piece belongs to exactly one collection.
- * {@code CollectionController} exposes a minimal create-only surface (see
+ * {@code CollectionController} exposes a minimal list/create surface (see
  * {@link CollectionService}'s own Javadoc for why it's deliberately scoped down) so this PR's
  * upload flow — which hard-requires an existing {@code collectionId} — is actually usable
  * end-to-end rather than only reachable via tests seeding a collection directly through
