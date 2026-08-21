@@ -32,13 +32,16 @@ import java.util.Map;
 public class AuthController {
 
     private final AuthService authService;
+    private final PasswordResetResponseTimer passwordResetResponseTimer;
     private final Duration accessTokenTtl;
     private final boolean cookieSecure;
 
     public AuthController(AuthService authService,
+                           PasswordResetResponseTimer passwordResetResponseTimer,
                            @Value("${app.jwt.access-token-ttl}") Duration accessTokenTtl,
                            @Value("${app.security.cookie-secure:true}") boolean cookieSecure) {
         this.authService = authService;
+        this.passwordResetResponseTimer = passwordResetResponseTimer;
         this.accessTokenTtl = accessTokenTtl;
         this.cookieSecure = cookieSecure;
     }
@@ -80,11 +83,13 @@ public class AuthController {
 
     @PostMapping("/password-reset/request")
     public ResponseEntity<Void> requestPasswordReset(@Valid @RequestBody RequestPasswordResetRequest request) {
-        try {
-            authService.requestPasswordReset(request.email());
-        } catch (PasswordResetDeliveryException ignored) {
-            // SMTP state must not turn this endpoint into an account-enumeration oracle.
-        }
+        passwordResetResponseTimer.run(() -> {
+            try {
+                authService.requestPasswordReset(request.email());
+            } catch (PasswordResetDeliveryException ignored) {
+                // SMTP state must not turn this endpoint into an account-enumeration oracle.
+            }
+        });
         return ResponseEntity.accepted().build();
     }
 

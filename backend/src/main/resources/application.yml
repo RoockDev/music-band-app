@@ -41,12 +41,10 @@ spring:
       mail:
         smtp:
           # ContactService#notifyAdmins calls EmailSender#send synchronously, per admin, on
-          # the Tomcat request thread -- POST /api/contact is unauthenticated and has no
-          # rate limiting. Without an explicit bound here, a stalled/unresponsive SMTP host
-          # can hang a request thread indefinitely; a handful of concurrent submissions
-          # against a hung SMTP target could exhaust the whole worker pool (a full outage,
-          # not just a degraded contact form). 5s per phase bounds the worst case to
-          # N admins x ~15s per request instead of an indefinite hang.
+          # the Tomcat request thread. The public-write rate limit bounds accepted request
+          # frequency, while these timeouts bound each accepted request if SMTP stalls.
+          # 5s per phase keeps the worst case to N admins x ~15s instead of an indefinite
+          # hang that could exhaust the worker pool.
           connectiontimeout: 5000
           timeout: 5000
           writetimeout: 5000
@@ -76,6 +74,10 @@ app:
   auth:
     activation-token-ttl: ${ACTIVATION_TOKEN_TTL:P1D}
     reset-token-ttl: ${RESET_TOKEN_TTL:PT1H}
+    # Combined with the per-client reset limit below, this makes the fast unknown-account
+    # path less useful as a timing oracle. Deployments should keep this above normal SMTP
+    # delivery latency; the test profile disables the intentional delay.
+    password-reset-min-response-time: ${PASSWORD_RESET_MIN_RESPONSE_TIME:PT1S}
   frontend:
     # REQUIRED, no default. Password-reset emails must point at the real installation
     # frontend, never a hardcoded band/domain. PasswordResetLinkFactory fails startup for

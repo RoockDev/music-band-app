@@ -38,6 +38,7 @@ app:
   auth:
     activation-token-ttl: P1D
     reset-token-ttl: PT1H
+    password-reset-min-response-time: PT0S
   frontend:
     base-url: http://localhost:4200
   security:

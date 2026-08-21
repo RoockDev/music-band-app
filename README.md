@@ -56,7 +56,9 @@ export APP_FILE_STORAGE_BASE_DIR=/absolute/path/to/music-band-app-files
 `FRONTEND_BASE_URL` is required because password-reset emails derive their
 `/restablecer?token=...` link from that installation-specific origin. Production values must
 use HTTPS; plain HTTP is accepted only for `localhost` or another loopback address. The reset
-token lifetime can be changed with `RESET_TOKEN_TTL` (ISO-8601 duration, default `PT1H`).
+token lifetime can be changed with `RESET_TOKEN_TTL` (ISO-8601 duration, default `PT1H`). Reset
+requests also have a one-second response-time floor to reduce account-enumeration timing signals;
+deployments can tune it with `PASSWORD_RESET_MIN_RESPONSE_TIME` after measuring normal SMTP latency.
 
 On a new, empty database, Flyway applies the versioned migrations before Hibernate validates
 the resulting schema. Hibernate never updates the schema at runtime.
