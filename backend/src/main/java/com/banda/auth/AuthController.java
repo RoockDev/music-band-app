@@ -5,6 +5,7 @@ import com.banda.auth.dto.CompletePasswordResetRequest;
 import com.banda.auth.dto.CurrentUserResponse;
 import com.banda.auth.dto.LoginRequest;
 import com.banda.auth.dto.LoginResponse;
+import com.banda.auth.dto.RequestPasswordResetRequest;
 import com.banda.security.SecurityConstants;
 import com.banda.users.UserAccount;
 import jakarta.servlet.http.HttpServletResponse;
@@ -75,6 +76,16 @@ public class AuthController {
     public ResponseEntity<Void> completePasswordReset(@Valid @RequestBody CompletePasswordResetRequest request) {
         authService.resetPassword(request.token(), request.newPassword());
         return ResponseEntity.ok().build();
+    }
+
+    @PostMapping("/password-reset/request")
+    public ResponseEntity<Void> requestPasswordReset(@Valid @RequestBody RequestPasswordResetRequest request) {
+        try {
+            authService.requestPasswordReset(request.email());
+        } catch (PasswordResetDeliveryException ignored) {
+            // SMTP state must not turn this endpoint into an account-enumeration oracle.
+        }
+        return ResponseEntity.accepted().build();
     }
 
     @PostMapping("/logout")

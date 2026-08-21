@@ -76,6 +76,11 @@ app:
   auth:
     activation-token-ttl: ${ACTIVATION_TOKEN_TTL:P1D}
     reset-token-ttl: ${RESET_TOKEN_TTL:PT1H}
+  frontend:
+    # REQUIRED, no default. Password-reset emails must point at the real installation
+    # frontend, never a hardcoded band/domain. PasswordResetLinkFactory fails startup for
+    # malformed/non-origin values and requires HTTPS except for local loopback development.
+    base-url: ${FRONTEND_BASE_URL}
   security:
     # httpOnly+Secure+SameSite cookie flag (design decision #9). Override to false only
     # for plain-HTTP local dev without TLS (see README) — never in a real deployment.

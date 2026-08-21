@@ -38,6 +38,8 @@ app:
   auth:
     activation-token-ttl: P1D
     reset-token-ttl: PT1H
+  frontend:
+    base-url: http://localhost:4200
   security:
     # Integration tests run over plain HTTP via MockMvc/TestRestTemplate (no TLS), so a
     # Secure-flagged cookie would never round-trip back to the client — disable it here.

@@ -1,5 +1,6 @@
 package com.banda.auth;
 
+import com.banda.common.EmailSender;
 import com.banda.security.JwtService;
 import com.banda.security.TokenHasher;
 import com.banda.users.PasswordToken;
@@ -51,7 +52,8 @@ class AuthServiceOptimisticLockingTest {
         PasswordEncoder passwordEncoder = mock(PasswordEncoder.class);
         when(passwordEncoder.encode(any())).thenReturn("hashed");
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
-        authService = new AuthService(userAccountRepository, passwordTokenRepository, jwtService, passwordEncoder, clock);
+        authService = new AuthService(userAccountRepository, passwordTokenRepository, jwtService, passwordEncoder,
+                mock(EmailSender.class), mock(PasswordResetLinkFactory.class), clock, Duration.ofHours(1));
     }
 
     @Test

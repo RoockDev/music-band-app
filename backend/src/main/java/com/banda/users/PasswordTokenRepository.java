@@ -11,4 +11,6 @@ public interface PasswordTokenRepository extends JpaRepository<PasswordToken, Lo
 
     /** All tokens still usable for a given user, e.g. to invalidate them on password reset. */
     List<PasswordToken> findByUserAndUsedAtIsNull(UserAccount user);
+
+    List<PasswordToken> findByUserAndTypeAndUsedAtIsNull(UserAccount user, PasswordTokenType type);
 }
