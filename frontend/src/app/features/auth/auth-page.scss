@@ -1,0 +1,66 @@
+:host {
+  display: block;
+}
+
+.auth-page {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(22rem, 0.85fr);
+  min-height: calc(100vh - 5.5rem);
+}
+
+.auth-intro {
+  align-content: end;
+  background: var(--color-accent);
+  color: var(--color-paper);
+  display: grid;
+  min-height: 35rem;
+  padding: clamp(2rem, 7vw, 7rem);
+}
+
+.auth-intro h1 {
+  font-size: clamp(4rem, 8vw, 8rem);
+  line-height: 0.84;
+  margin: 1rem 0;
+}
+
+.auth-form-panel {
+  align-content: center;
+  display: grid;
+  padding: clamp(2rem, 6vw, 6rem);
+}
+
+.auth-form-panel h2 {
+  font-size: clamp(2.5rem, 4vw, 4.5rem);
+  line-height: 1;
+  margin: 0 0 2rem;
+}
+
+form {
+  display: grid;
+  gap: 1.2rem;
+}
+
+.support-note {
+  border-top: 1px solid var(--color-line);
+  color: var(--color-muted);
+  font-size: 0.9rem;
+  line-height: 1.6;
+  margin-top: 2rem;
+  padding-top: 1rem;
+}
+
+.support-note summary {
+  color: var(--color-ink);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+@media (max-width: 780px) {
+  .auth-page {
+    grid-template-columns: 1fr;
+  }
+
+  .auth-intro {
+    min-height: 20rem;
+  }
+}

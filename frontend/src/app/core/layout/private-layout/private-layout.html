@@ -1,0 +1,26 @@
+<a class="skip-link" href="#private-content">Saltar al contenido</a>
+<div class="private-shell">
+  <aside>
+    <a class="private-brand" routerLink="/">
+      <img [src]="brand.logoUrl" alt="" width="46" height="46" />
+      <strong>{{ brand.name }}</strong>
+    </a>
+    <nav aria-label="Área privada">
+      <a [routerLink]="session()?.role === 'ADMIN' ? '/administracion' : '/musico'">Inicio</a>
+      <a routerLink="/">Web pública</a>
+    </nav>
+    <div class="account-summary">
+      <span>{{ session()?.role === 'ADMIN' ? 'Administración' : 'Área de músico' }}</span>
+      <strong>{{ session()?.email }}</strong>
+      <button type="button" (click)="logout()" [disabled]="signingOut()">
+        {{ signingOut() ? 'Cerrando…' : 'Cerrar sesión' }}
+      </button>
+      @if (signOutFailed()) {
+        <p role="alert">No se ha podido cerrar la sesión. Inténtalo de nuevo.</p>
+      }
+    </div>
+  </aside>
+  <main id="private-content" tabindex="-1">
+    <router-outlet />
+  </main>
+</div>

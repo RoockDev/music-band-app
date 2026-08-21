@@ -1,0 +1,41 @@
+.private-heading {
+  border-bottom: 1px solid var(--color-line);
+  padding: clamp(2rem, 6vw, 6rem);
+}
+
+.private-heading h1 {
+  font-size: clamp(3.5rem, 8vw, 8rem);
+  line-height: 0.85;
+  margin: 0.8rem 0 1.5rem;
+}
+
+.foundation-note {
+  align-items: start;
+  display: grid;
+  gap: 2rem;
+  grid-template-columns: auto minmax(0, 40rem);
+  padding: clamp(2rem, 6vw, 6rem);
+}
+
+.foundation-note > span {
+  color: var(--color-accent);
+  font-family: var(--font-display);
+  font-size: 6rem;
+  line-height: 0.7;
+}
+
+.foundation-note h2 {
+  font-size: clamp(2rem, 4vw, 4rem);
+  line-height: 1;
+  margin: 0.5rem 0;
+}
+
+.foundation-note p:last-child {
+  line-height: 1.7;
+}
+
+@media (max-width: 600px) {
+  .foundation-note {
+    grid-template-columns: 1fr;
+  }
+}
