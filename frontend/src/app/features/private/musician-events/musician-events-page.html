@@ -1,0 +1,37 @@
+<header class="private-heading">
+  <div>
+    <p class="eyebrow">Agenda interna</p>
+    <h1>Próximos encuentros</h1>
+  </div>
+  <p>Ensayos, actuaciones y citas compartidas contigo o con tus grupos.</p>
+</header>
+
+@if (loading()) {
+  <app-page-state kind="loading" loadingText="Consultando tu agenda…" />
+} @else if (failed()) {
+  <app-page-state kind="error" errorText="No hemos podido consultar tu agenda." (retry)="load()" />
+} @else if (items().length === 0) {
+  <app-page-state kind="empty" emptyText="No tienes eventos asignados en este momento." />
+} @else {
+  <ol class="event-list">
+    @for (item of items(); track item.id) {
+      <li [class.cancelled]="item.status === 'CANCELLED'">
+        <time [attr.datetime]="item.startsAt">
+          <strong>{{ item.startsAt | date: 'dd' }}</strong>
+          <span>{{ item.startsAt | date: 'MMM' }}</span>
+          <small>{{ item.startsAt | date: 'HH:mm' }}</small>
+        </time>
+        <div>
+          @if (item.status === 'CANCELLED') {
+            <p class="status-label">Cancelado</p>
+          }
+          <h2>
+            <a [routerLink]="['/musico/agenda', item.id]">{{ item.title }}</a>
+          </h2>
+          <p class="location">{{ item.location || 'Ubicación por confirmar' }}</p>
+        </div>
+        <a class="text-link" [routerLink]="['/musico/agenda', item.id]">Ver detalles</a>
+      </li>
+    }
+  </ol>
+}

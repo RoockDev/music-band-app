@@ -6,7 +6,16 @@
       <strong>{{ brand.name }}</strong>
     </a>
     <nav aria-label="Área privada">
-      <a [routerLink]="session()?.role === 'ADMIN' ? '/administracion' : '/musico'">Inicio</a>
+      <a
+        [routerLink]="session()?.role === 'ADMIN' ? '/administracion' : '/musico'"
+        routerLinkActive="active"
+        [routerLinkActiveOptions]="{ exact: true }"
+        >Inicio</a
+      >
+      @if (session()?.role === 'MUSICIAN') {
+        <a routerLink="/musico/agenda" routerLinkActive="active">Agenda</a>
+        <a routerLink="/musico/biblioteca" routerLinkActive="active">Partituras</a>
+      }
       <a routerLink="/">Web pública</a>
     </nav>
     <div class="account-summary">

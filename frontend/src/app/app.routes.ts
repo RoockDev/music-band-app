@@ -9,13 +9,33 @@ const privateHome = () =>
 const privateLayout = () =>
   import('./core/layout/private-layout/private-layout').then((module) => module.PrivateLayout);
 
+const musicianEvents = () =>
+  import('./features/private/musician-events/musician-events-page').then(
+    (module) => module.MusicianEventsPage,
+  );
+
+const musicianEventDetail = () =>
+  import('./features/private/musician-event-detail/musician-event-detail-page').then(
+    (module) => module.MusicianEventDetailPage,
+  );
+
+const musicianLibrary = () =>
+  import('./features/private/musician-library/musician-library-page').then(
+    (module) => module.MusicianLibraryPage,
+  );
+
 export const routes: Routes = [
   {
     path: 'musico',
     canActivate: [authGuard, roleGuard],
     data: { role: 'MUSICIAN' },
     loadComponent: privateLayout,
-    children: [{ path: '', title: 'Área de músico', loadComponent: privateHome }],
+    children: [
+      { path: '', title: 'Área de músico', loadComponent: privateHome },
+      { path: 'agenda', title: 'Mi agenda', loadComponent: musicianEvents },
+      { path: 'agenda/:id', title: 'Detalle del evento', loadComponent: musicianEventDetail },
+      { path: 'biblioteca', title: 'Mis partituras', loadComponent: musicianLibrary },
+    ],
   },
   {
     path: 'administracion',

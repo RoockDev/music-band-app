@@ -1,17 +1,39 @@
 <header class="private-heading">
   <p class="eyebrow">Sesión activa</p>
   <h1>{{ session()?.role === 'ADMIN' ? 'Administración' : 'Área de músico' }}</h1>
-  <p>Has accedido como <strong>{{ session()?.email }}</strong>.</p>
+  <p>
+    Has accedido como <strong>{{ session()?.email }}</strong
+    >.
+  </p>
 </header>
 
-<section class="foundation-note" aria-labelledby="foundation-title">
-  <span aria-hidden="true">♪</span>
-  <div>
-    <p class="section-index">Base privada preparada</p>
-    <h2 id="foundation-title">Este espacio se completará en la siguiente tanda.</h2>
-    <p>
-      La sesión, la protección por rol y el cierre de sesión ya son reales. No mostramos módulos
-      simulados como si estuvieran disponibles.
-    </p>
-  </div>
-</section>
+@if (session()?.role === 'MUSICIAN') {
+  <section class="private-actions" aria-labelledby="private-actions-title">
+    <p class="section-index">Tu espacio de trabajo</p>
+    <h2 id="private-actions-title">Todo lo necesario para el próximo ensayo.</h2>
+    <div class="action-grid">
+      <a routerLink="/musico/agenda">
+        <span>01</span>
+        <h3>Agenda interna</h3>
+        <p>Consulta ensayos, actuaciones, horarios, lugares e indicaciones.</p>
+      </a>
+      <a routerLink="/musico/biblioteca">
+        <span>02</span>
+        <h3>Biblioteca</h3>
+        <p>Encuentra y descarga las partituras asignadas a tu cuenta y tus grupos.</p>
+      </a>
+    </div>
+  </section>
+} @else {
+  <section class="foundation-note" aria-labelledby="foundation-title">
+    <span aria-hidden="true">♪</span>
+    <div>
+      <p class="section-index">Base privada preparada</p>
+      <h2 id="foundation-title">La gestión administrativa llega en la siguiente tanda.</h2>
+      <p>
+        La sesión, la protección por rol y el cierre de sesión ya son reales. No mostramos módulos
+        simulados como si estuvieran disponibles.
+      </p>
+    </div>
+  </section>
+}

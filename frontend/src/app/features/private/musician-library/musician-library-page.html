@@ -1,0 +1,48 @@
+<header class="private-heading">
+  <div>
+    <p class="eyebrow">Biblioteca privada</p>
+    <h1>Tus partituras</h1>
+  </div>
+  <p>Material asignado directamente a tu cuenta, a tus grupos o a toda la banda.</p>
+</header>
+
+@if (loading()) {
+  <app-page-state kind="loading" loadingText="Preparando tu biblioteca…" />
+} @else if (failed()) {
+  <app-page-state
+    kind="error"
+    errorText="No hemos podido consultar tu biblioteca."
+    (retry)="load()"
+  />
+} @else if (items().length === 0) {
+  <app-page-state kind="empty" emptyText="No tienes partituras asignadas en este momento." />
+} @else {
+  <ul class="score-list">
+    @for (item of items(); track item.id) {
+      <li>
+        <div class="score-mark" aria-hidden="true">♪</div>
+        <div>
+          <p class="section-index">{{ item.contentType || 'Archivo musical' }}</p>
+          <h2>{{ item.title }}</h2>
+          <p>{{ item.composer || 'Autoría no indicada' }}</p>
+          @if (item.originalFilename) {
+            <small>{{ item.originalFilename }}</small>
+          }
+        </div>
+        <div class="download-action">
+          <button
+            class="button"
+            type="button"
+            (click)="download(item)"
+            [disabled]="downloadingId() !== null"
+          >
+            {{ downloadingId() === item.id ? 'Descargando…' : 'Descargar' }}
+          </button>
+          @if (downloadFailedId() === item.id) {
+            <p role="alert">No se ha podido descargar. Inténtalo de nuevo.</p>
+          }
+        </div>
+      </li>
+    }
+  </ul>
+}

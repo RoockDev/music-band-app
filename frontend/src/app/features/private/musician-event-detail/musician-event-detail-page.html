@@ -1,0 +1,43 @@
+<a class="back-link" routerLink="/musico/agenda">← Volver a la agenda</a>
+
+@if (loading()) {
+  <app-page-state kind="loading" loadingText="Consultando el evento…" />
+} @else if (failed()) {
+  <app-page-state
+    kind="error"
+    errorText="El evento no existe, no está asignado a tu cuenta o no está disponible."
+    (retry)="load()"
+  />
+} @else if (item(); as event) {
+  <article [class.cancelled]="event.status === 'CANCELLED'">
+    <header>
+      <p class="eyebrow">
+        {{ event.status === 'CANCELLED' ? 'Evento cancelado' : 'Agenda interna' }}
+      </p>
+      <h1>{{ event.title }}</h1>
+    </header>
+    <dl>
+      <div>
+        <dt>Fecha</dt>
+        <dd>
+          <time [attr.datetime]="event.startsAt">{{ event.startsAt | date: 'fullDate' }}</time>
+        </dd>
+      </div>
+      <div>
+        <dt>Hora</dt>
+        <dd>{{ event.startsAt | date: 'HH:mm' }}</dd>
+      </div>
+      <div>
+        <dt>Lugar</dt>
+        <dd>{{ event.location || 'Por confirmar' }}</dd>
+      </div>
+    </dl>
+    @if (event.description) {
+      <section aria-labelledby="event-description">
+        <p class="section-index">Información</p>
+        <h2 id="event-description">Indicaciones del evento</h2>
+        <p>{{ event.description }}</p>
+      </section>
+    }
+  </article>
+}

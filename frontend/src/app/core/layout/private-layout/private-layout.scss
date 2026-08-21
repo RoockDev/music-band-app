@@ -47,6 +47,7 @@ nav a {
 }
 
 nav a:hover,
+.active,
 .account-summary button:hover {
   background: color-mix(in srgb, var(--color-paper) 12%, transparent);
 }
@@ -92,18 +93,37 @@ main {
 
   aside {
     align-items: center;
-    display: grid;
-    grid-template-columns: 1fr auto;
+    display: flex;
+    gap: 1rem;
     min-height: auto;
+    overflow-x: auto;
     padding: 0.8rem 1rem;
     position: static;
   }
 
+  .private-brand {
+    margin-right: auto;
+  }
+
   .private-brand strong,
-  nav,
   .account-summary span,
   .account-summary strong,
   .account-summary p {
+    display: none;
+  }
+
+  nav {
+    display: flex;
+    gap: 0.15rem;
+    margin: 0;
+    white-space: nowrap;
+  }
+
+  nav a {
+    padding: 0.6rem;
+  }
+
+  nav a:last-child {
     display: none;
   }
 
