@@ -3,15 +3,18 @@
     <p class="eyebrow">Administración</p>
     <h1>Contenido</h1>
   </div>
-  <p>
-    Publica noticias, vídeos, cursos y galerías. El contrato actual solo permite crear: las listas
-    públicas son la vista previa autoritativa.
-  </p>
+  <p>Gestiona noticias, vídeos, cursos y galerías públicas con control de cambios concurrentes.</p>
 </header>
+
+@if (notice()) {
+  <p class="global-notice" role="status">{{ notice() }}</p>
+}
+
 <div class="content-workbench">
   <details open>
-    <summary><span>01</span> Nueva noticia</summary>
-    <form [formGroup]="newsForm" (ngSubmit)="createNews()">
+    <summary><span>01</span> Noticias</summary>
+    <form [formGroup]="newsForm" (ngSubmit)="saveNews()">
+      <h2>{{ editingNews() ? 'Editar noticia' : 'Nueva noticia' }}</h2>
       <div class="field">
         <label for="news-title">Título</label><input id="news-title" formControlName="title" />
       </div>
@@ -22,14 +25,46 @@
       @if (error('news')) {
         <p class="form-message error" role="alert">{{ error('news') }}</p>
       }
-      <button class="button" type="submit" [disabled]="saving() !== null">
-        {{ saving() === 'news' ? 'Publicando…' : 'Publicar noticia' }}
-      </button>
+      <div class="form-actions">
+        <button class="button" type="submit" [disabled]="saving() !== null">
+          {{
+            saving() === 'news'
+              ? 'Guardando…'
+              : editingNews()
+                ? 'Guardar cambios'
+                : 'Publicar noticia'
+          }}
+        </button>
+        @if (editingNews()) {
+          <button class="text-button" type="button" (click)="cancelNewsEdit()">
+            Cancelar edición
+          </button>
+        }
+      </div>
     </form>
+    <ul class="management-list" aria-label="Noticias publicadas">
+      @for (item of news(); track item.id) {
+        <li>
+          <div>
+            <strong>{{ item.title }}</strong
+            ><small>Actualizada {{ item.updatedAt }}</small>
+          </div>
+          <div class="record-actions">
+            <button type="button" (click)="editNews(item)" [attr.data-edit-news-id]="item.id">
+              Editar</button
+            ><button class="danger" type="button" (click)="deleteNews(item)">Eliminar</button>
+          </div>
+        </li>
+      } @empty {
+        <li class="empty-row">No hay noticias publicadas.</li>
+      }
+    </ul>
   </details>
+
   <details>
-    <summary><span>02</span> Nuevo vídeo</summary>
-    <form [formGroup]="videoForm" (ngSubmit)="createVideo()">
+    <summary><span>02</span> Vídeos</summary>
+    <form [formGroup]="videoForm" (ngSubmit)="saveVideo()">
+      <h2>{{ editingVideo() ? 'Editar vídeo' : 'Nuevo vídeo' }}</h2>
       <div class="field">
         <label for="video-title">Título</label><input id="video-title" formControlName="title" />
       </div>
@@ -39,14 +74,45 @@
       @if (error('video')) {
         <p class="form-message error" role="alert">{{ error('video') }}</p>
       }
-      <button class="button" type="submit" [disabled]="saving() !== null">
-        {{ saving() === 'video' ? 'Publicando…' : 'Publicar vídeo' }}
-      </button>
+      <div class="form-actions">
+        <button class="button" type="submit" [disabled]="saving() !== null">
+          {{
+            saving() === 'video'
+              ? 'Guardando…'
+              : editingVideo()
+                ? 'Guardar cambios'
+                : 'Publicar vídeo'
+          }}
+        </button>
+        @if (editingVideo()) {
+          <button class="text-button" type="button" (click)="cancelVideoEdit()">
+            Cancelar edición
+          </button>
+        }
+      </div>
     </form>
+    <ul class="management-list" aria-label="Vídeos publicados">
+      @for (item of videos(); track item.id) {
+        <li>
+          <div>
+            <strong>{{ item.title }}</strong
+            ><small>{{ item.url }}</small>
+          </div>
+          <div class="record-actions">
+            <button type="button" (click)="editVideo(item)">Editar</button
+            ><button class="danger" type="button" (click)="deleteVideo(item)">Eliminar</button>
+          </div>
+        </li>
+      } @empty {
+        <li class="empty-row">No hay vídeos publicados.</li>
+      }
+    </ul>
   </details>
+
   <details>
-    <summary><span>03</span> Nuevo curso</summary>
-    <form [formGroup]="courseForm" (ngSubmit)="createCourse()">
+    <summary><span>03</span> Cursos</summary>
+    <form [formGroup]="courseForm" (ngSubmit)="saveCourse()">
+      <h2>{{ editingCourse() ? 'Editar curso' : 'Nuevo curso' }}</h2>
       <div class="field">
         <label for="course-title">Título</label><input id="course-title" formControlName="title" />
       </div>
@@ -79,16 +145,49 @@
       @if (error('course')) {
         <p class="form-message error" role="alert">{{ error('course') }}</p>
       }
-      <button class="button" type="submit" [disabled]="saving() !== null">
-        {{ saving() === 'course' ? 'Publicando…' : 'Publicar curso' }}
-      </button>
+      <div class="form-actions">
+        <button class="button" type="submit" [disabled]="saving() !== null">
+          {{
+            saving() === 'course'
+              ? 'Guardando…'
+              : editingCourse()
+                ? 'Guardar cambios'
+                : 'Publicar curso'
+          }}
+        </button>
+        @if (editingCourse()) {
+          <button class="text-button" type="button" (click)="cancelCourseEdit()">
+            Cancelar edición
+          </button>
+        }
+      </div>
     </form>
+    <ul class="management-list" aria-label="Cursos publicados">
+      @for (item of courses(); track item.id) {
+        <li>
+          <div>
+            <strong>{{ item.title }}</strong
+            ><small>{{ item.startDate }} · {{ item.instrument }} · {{ item.price }} €</small>
+          </div>
+          <div class="record-actions">
+            <button type="button" (click)="editCourse(item)">Editar</button
+            ><button class="danger" type="button" (click)="deleteCourse(item)">Eliminar</button>
+          </div>
+        </li>
+      } @empty {
+        <li class="empty-row">No hay cursos publicados.</li>
+      }
+    </ul>
   </details>
+
   <details>
     <summary><span>04</span> Galería</summary>
+    <p class="constraint">
+      Un álbum con fotografías no se puede eliminar. Elimina primero cada fotografía.
+    </p>
     <div class="gallery-forms">
-      <form [formGroup]="albumForm" (ngSubmit)="createAlbum()">
-        <h2>Crear álbum</h2>
+      <form [formGroup]="albumForm" (ngSubmit)="saveAlbum()">
+        <h2>{{ editingAlbum() ? 'Editar álbum' : 'Crear álbum' }}</h2>
         <div class="field">
           <label for="album-name">Nombre</label><input id="album-name" formControlName="name" />
         </div>
@@ -99,9 +198,22 @@
         @if (error('album')) {
           <p class="form-message error" role="alert">{{ error('album') }}</p>
         }
-        <button class="button" type="submit" [disabled]="saving() !== null">
-          {{ saving() === 'album' ? 'Creando…' : 'Crear álbum' }}
-        </button>
+        <div class="form-actions">
+          <button class="button" type="submit" [disabled]="saving() !== null">
+            {{
+              saving() === 'album'
+                ? 'Guardando…'
+                : editingAlbum()
+                  ? 'Guardar cambios'
+                  : 'Crear álbum'
+            }}
+          </button>
+          @if (editingAlbum()) {
+            <button class="text-button" type="button" (click)="cancelAlbumEdit()">
+              Cancelar edición
+            </button>
+          }
+        </div>
       </form>
       <form [formGroup]="photoForm" (ngSubmit)="uploadPhoto()">
         <h2>Añadir fotografía</h2>
@@ -125,7 +237,7 @@
             type="file"
             accept="image/png,image/jpeg"
             (change)="choosePhoto($event)"
-          />
+          /><small>PNG o JPEG · máximo 20 MB</small>
         </div>
         @if (error('photo')) {
           <p class="form-message error" role="alert">{{ error('photo') }}</p>
@@ -139,37 +251,57 @@
         </button>
       </form>
     </div>
+    <ul class="album-list" aria-label="Álbumes">
+      @for (album of albums(); track album.id) {
+        <li>
+          <div class="album-heading">
+            <div>
+              <strong>{{ album.name }}</strong
+              ><small
+                >{{ album.description || 'Sin descripción' }} ·
+                {{ album.photos.length }} fotografías</small
+              >
+            </div>
+            <div class="record-actions">
+              <button type="button" (click)="editAlbum(album)" [attr.data-edit-album-id]="album.id">
+                Editar</button
+              ><button
+                class="danger"
+                type="button"
+                (click)="deleteAlbum(album)"
+                [attr.data-delete-album-id]="album.id"
+                [disabled]="album.photos.length > 0"
+              >
+                Eliminar
+              </button>
+            </div>
+          </div>
+          @if (album.photos.length > 0) {
+            <ul class="photo-list">
+              @for (photo of album.photos; track photo.id) {
+                <li>
+                  <span>{{ photo.caption || 'Fotografía sin pie' }}</span
+                  ><button class="danger" type="button" (click)="deletePhoto(album, photo)">
+                    Eliminar fotografía
+                  </button>
+                </li>
+              }
+            </ul>
+          }
+        </li>
+      } @empty {
+        <li class="empty-row">No hay álbumes.</li>
+      }
+    </ul>
   </details>
 </div>
+
 @if (loading()) {
-  <app-page-state kind="loading" loadingText="Consultando la vista pública…" />
+  <app-page-state kind="loading" loadingText="Consultando el contenido administrable…" />
 } @else if (failed()) {
   <app-page-state
     kind="error"
-    errorText="No se ha podido cargar la vista previa pública."
+    errorText="No se ha podido cargar el contenido administrable."
     (retry)="load()"
   />
-} @else {
-  <section class="preview" aria-labelledby="preview-title">
-    <p class="section-index">Vista pública autoritativa</p>
-    <h2 id="preview-title">Contenido publicado</h2>
-    <dl>
-      <div>
-        <dt>Noticias</dt>
-        <dd>{{ news().length }}</dd>
-      </div>
-      <div>
-        <dt>Vídeos</dt>
-        <dd>{{ videos().length }}</dd>
-      </div>
-      <div>
-        <dt>Cursos</dt>
-        <dd>{{ courses().length }}</dd>
-      </div>
-      <div>
-        <dt>Álbumes</dt>
-        <dd>{{ albums().length }}</dd>
-      </div>
-    </dl>
-  </section>
 }

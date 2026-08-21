@@ -41,6 +41,80 @@ details > form,
   max-width: 50rem;
   padding: 1rem 0 3rem;
 }
+details > .constraint {
+  color: var(--color-muted);
+  max-width: 48rem;
+}
+.global-notice {
+  background: color-mix(in srgb, var(--color-accent) 18%, var(--color-paper));
+  margin: 0;
+  padding: 1rem clamp(2rem, 6vw, 6rem);
+}
+.form-actions,
+.record-actions,
+.album-heading {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+.text-button,
+.record-actions button,
+.photo-list button {
+  background: transparent;
+  border: 1px solid currentColor;
+  cursor: pointer;
+  min-height: 2.75rem;
+  padding: 0.55rem 0.8rem;
+}
+.danger {
+  color: var(--color-danger, #8f1d1d);
+}
+.management-list,
+.album-list,
+.photo-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 2rem;
+}
+.management-list > li,
+.album-list > li,
+.photo-list > li {
+  align-items: center;
+  border-top: 1px solid var(--color-line);
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  padding: 1rem 0;
+}
+.management-list strong,
+.management-list small,
+.album-list strong,
+.album-list small {
+  display: block;
+}
+.management-list small,
+.album-list small {
+  color: var(--color-muted);
+  margin-top: 0.35rem;
+  overflow-wrap: anywhere;
+}
+.album-heading {
+  justify-content: space-between;
+  width: 100%;
+}
+.album-list > li {
+  align-items: stretch;
+  display: block;
+}
+.photo-list {
+  margin: 1rem 0 0 1rem;
+  padding-bottom: 0;
+}
+.record-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
 .gallery-forms {
   grid-template-columns: 1fr 1fr;
   max-width: none;
@@ -102,5 +176,11 @@ details > form,
   .form-grid,
   .preview dl {
     grid-template-columns: 1fr;
+  }
+  .management-list > li,
+  .photo-list > li,
+  .album-heading {
+    align-items: stretch;
+    flex-direction: column;
   }
 }

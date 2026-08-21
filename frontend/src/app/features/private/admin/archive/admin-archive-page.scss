@@ -66,6 +66,46 @@
   gap: 1rem;
   grid-template-columns: 1fr 1fr;
 }
+.text-button,
+.record-actions button {
+  background: transparent;
+  border: 1px solid currentColor;
+  cursor: pointer;
+  min-height: 2.75rem;
+  padding: 0.55rem 0.8rem;
+}
+.collection-list {
+  list-style: none;
+  margin: 2rem 0 0;
+  padding: 0;
+}
+.collection-list li {
+  align-items: center;
+  border-top: 1px solid var(--color-line);
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  padding: 1rem 0;
+}
+.collection-list strong,
+.collection-list small {
+  display: block;
+}
+.collection-list small {
+  color: var(--color-muted);
+  margin-top: 0.35rem;
+}
+.record-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+.record-actions .danger {
+  color: var(--color-danger, #8f1d1d);
+}
+.record-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
 .score-list {
   list-style: none;
   margin: 0;
@@ -108,5 +148,10 @@
   }
   .work-grid > section + section {
     border-left: 0;
+  }
+  .collection-list li,
+  .record-actions {
+    align-items: stretch;
+    flex-direction: column;
   }
 }

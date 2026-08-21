@@ -189,12 +189,28 @@ describe('AdminService', () => {
     createCollection.flush({ id: 3 });
   });
 
-  it('uses create-only content endpoints and the entity audit history', () => {
+  it('uses versioned CRUD contracts for managed public content', () => {
+    service.getManagedNews().subscribe();
+    http.expectOne('/api/news').flush([]);
+
     service.createNews({ title: 'News', body: 'Body' }).subscribe();
     http.expectOne('/api/auth/csrf').flush('');
     const news = http.expectOne('/api/news');
     expect(news.request.method).toBe('POST');
     news.flush({ id: 1 });
+
+    service.updateNews(1, { title: 'Updated', body: 'Body', version: 3 }).subscribe();
+    http.expectOne('/api/auth/csrf').flush('');
+    const update = http.expectOne('/api/news/1');
+    expect(update.request.method).toBe('PUT');
+    expect(update.request.body.version).toBe(3);
+    update.flush({ id: 1, version: 4 });
+
+    service.deleteNews(1, 4).subscribe();
+    http.expectOne('/api/auth/csrf').flush('');
+    const remove = http.expectOne('/api/news/1?version=4');
+    expect(remove.request.method).toBe('DELETE');
+    remove.flush(null);
 
     service.createVideo({ title: 'Concert', url: 'https://example.com/video' }).subscribe();
     http.expectOne('/api/auth/csrf').flush('');
@@ -202,10 +218,38 @@ describe('AdminService', () => {
     expect(video.request.method).toBe('POST');
     video.flush({ id: 2 });
 
+    service.getManagedVideos().subscribe();
+    service.getManagedCourses().subscribe();
+    service.getManagedAlbums().subscribe();
+    http.expectOne('/api/videos').flush([]);
+    http.expectOne('/api/courses').flush([]);
+    http.expectOne('/api/albums').flush([]);
+
+    service.deletePhoto(8).subscribe();
+    http.expectOne('/api/auth/csrf').flush('');
+    const photo = http.expectOne('/api/albums/photos/8');
+    expect(photo.request.method).toBe('DELETE');
+    photo.flush(null);
+
     service.getAuditHistory('UserAccount', 7).subscribe();
     const audit = http.expectOne('/api/audit/UserAccount/7');
     expect(audit.request.method).toBe('GET');
     audit.flush([]);
+  });
+
+  it('sends collection versions on update and delete', () => {
+    service.updateCollection(3, { name: 'Concerts', description: null, version: 2 }).subscribe();
+    http.expectOne('/api/auth/csrf').flush('');
+    const update = http.expectOne('/api/collections/3');
+    expect(update.request.method).toBe('PUT');
+    expect(update.request.body.version).toBe(2);
+    update.flush({ id: 3, version: 3 });
+
+    service.deleteCollection(3, 3).subscribe();
+    http.expectOne('/api/auth/csrf').flush('');
+    const remove = http.expectOne('/api/collections/3?version=3');
+    expect(remove.request.method).toBe('DELETE');
+    remove.flush(null);
   });
 });
 

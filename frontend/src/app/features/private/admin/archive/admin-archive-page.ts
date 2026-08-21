@@ -27,6 +27,8 @@ export class AdminArchivePage implements OnInit {
   protected readonly collectionSaving = signal(false);
   protected readonly uploadSaving = signal(false);
   protected readonly collectionError = signal<string | null>(null);
+  protected readonly collectionNotice = signal<string | null>(null);
+  protected readonly editingCollection = signal<Collection | null>(null);
   protected readonly uploadError = signal<string | null>(null);
   protected readonly selectedFile = signal<File | null>(null);
   protected readonly collectionForm = this.formBuilder.nonNullable.group({
@@ -63,22 +65,81 @@ export class AdminArchivePage implements OnInit {
       });
   }
 
-  protected createCollection(): void {
+  protected saveCollection(): void {
     this.collectionError.set(null);
+    this.collectionNotice.set(null);
     if (this.collectionForm.invalid) {
       this.collectionForm.markAllAsTouched();
       return;
     }
     const value = this.collectionForm.getRawValue();
+    const editing = this.editingCollection();
     this.collectionSaving.set(true);
+    const request = editing
+      ? this.admin.updateCollection(editing.id, {
+          name: value.name.trim(),
+          description: value.description.trim() || null,
+          version: editing.version,
+        })
+      : this.admin.createCollection({
+          name: value.name.trim(),
+          description: value.description.trim() || null,
+        });
+    request.pipe(finalize(() => this.collectionSaving.set(false))).subscribe({
+      next: (saved) => {
+        this.collections.update((items) =>
+          this.sortCollections(
+            editing
+              ? items.map((item) => (item.id === saved.id ? saved : item))
+              : [...items, saved],
+          ),
+        );
+        this.uploadForm.controls.collectionId.setValue(saved.id);
+        this.cancelCollectionEdit();
+        this.collectionNotice.set(editing ? 'Colección actualizada.' : 'Colección creada.');
+      },
+      error: (error: unknown) =>
+        this.collectionError.set(adminErrorMessage(error, 'el archivo de partituras')),
+    });
+  }
+
+  protected editCollection(collection: Collection): void {
+    this.editingCollection.set(collection);
+    this.collectionForm.setValue({
+      name: collection.name,
+      description: collection.description ?? '',
+    });
+    this.collectionError.set(null);
+  }
+
+  protected cancelCollectionEdit(): void {
+    this.editingCollection.set(null);
+    this.collectionForm.reset({ name: '', description: '' });
+  }
+
+  protected collectionScoreCount(collectionId: number): number {
+    return this.scores().filter((score) => score.collectionId === collectionId).length;
+  }
+
+  protected deleteCollection(collection: Collection): void {
+    if (this.collectionScoreCount(collection.id) > 0) {
+      this.collectionError.set(
+        'No se puede eliminar una colección que contiene partituras. Reubica o elimina primero su contenido.',
+      );
+      return;
+    }
+    if (!window.confirm(`¿Eliminar la colección “${collection.name}”?`)) return;
+    this.collectionSaving.set(true);
+    this.collectionError.set(null);
+    this.collectionNotice.set(null);
     this.admin
-      .createCollection({ name: value.name.trim(), description: value.description.trim() || null })
+      .deleteCollection(collection.id, collection.version)
       .pipe(finalize(() => this.collectionSaving.set(false)))
       .subscribe({
-        next: (created) => {
-          this.collections.update((items) => this.sortCollections([...items, created]));
-          this.uploadForm.controls.collectionId.setValue(created.id);
-          this.collectionForm.reset({ name: '', description: '' });
+        next: () => {
+          this.collections.update((items) => items.filter((item) => item.id !== collection.id));
+          if (this.editingCollection()?.id === collection.id) this.cancelCollectionEdit();
+          this.collectionNotice.set('Colección eliminada.');
         },
         error: (error: unknown) =>
           this.collectionError.set(adminErrorMessage(error, 'el archivo de partituras')),

@@ -63,6 +63,13 @@ export interface Collection {
   description: string | null;
   createdAt: string;
   updatedAt: string;
+  version: number;
+}
+
+export interface CollectionMutation {
+  name: string;
+  description: string | null;
+  version?: number;
 }
 
 export interface EventCreateMutation {
@@ -106,4 +113,5 @@ export interface CourseMutation {
   price: number;
   instrument: string;
   minimumAge: number;
+  version?: number;
 }

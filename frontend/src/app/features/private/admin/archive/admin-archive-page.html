@@ -11,11 +11,14 @@
 <div class="work-grid">
   <section aria-labelledby="collection-title">
     <p class="section-index">Colecciones</p>
-    <h2 id="collection-title">Abrir una carpeta</h2>
+    <h2 id="collection-title">
+      {{ editingCollection() ? 'Editar colección' : 'Abrir una carpeta' }}
+    </h2>
     <p class="constraint">
-      El contrato actual permite crear y listar colecciones, no renombrarlas ni eliminarlas.
+      Una colección que contiene partituras no se puede eliminar. Esta unidad no modifica ni elimina
+      partituras.
     </p>
-    <form [formGroup]="collectionForm" (ngSubmit)="createCollection()">
+    <form [formGroup]="collectionForm" (ngSubmit)="saveCollection()">
       <div class="field">
         <label for="collection-name">Nombre</label
         ><input id="collection-name" formControlName="name" />
@@ -27,10 +30,57 @@
       @if (collectionError()) {
         <p class="form-message error" role="alert">{{ collectionError() }}</p>
       }
+      @if (collectionNotice()) {
+        <p class="form-message" role="status">{{ collectionNotice() }}</p>
+      }
       <button class="button" type="submit" [disabled]="collectionSaving()">
-        {{ collectionSaving() ? 'Creando…' : 'Crear colección' }}
+        {{
+          collectionSaving()
+            ? 'Guardando…'
+            : editingCollection()
+              ? 'Guardar cambios'
+              : 'Crear colección'
+        }}
       </button>
+      @if (editingCollection()) {
+        <button class="text-button" type="button" (click)="cancelCollectionEdit()">
+          Cancelar edición
+        </button>
+      }
     </form>
+    <ul class="collection-list" aria-label="Colecciones">
+      @for (collection of collections(); track collection.id) {
+        <li>
+          <div>
+            <strong>{{ collection.name }}</strong>
+            <small
+              >{{ collection.description || 'Sin descripción' }} ·
+              {{ collectionScoreCount(collection.id) }} partituras</small
+            >
+          </div>
+          <div class="record-actions">
+            <button
+              type="button"
+              (click)="editCollection(collection)"
+              [attr.data-edit-collection-id]="collection.id"
+            >
+              Editar
+            </button>
+            <button
+              class="danger"
+              type="button"
+              (click)="deleteCollection(collection)"
+              [attr.data-delete-collection-id]="collection.id"
+              [disabled]="collectionScoreCount(collection.id) > 0"
+            >
+              Eliminar
+            </button>
+          </div>
+        </li>
+      } @empty {
+        <li>Todavía no hay colecciones.</li>
+      }
+    </ul>
   </section>
   <section aria-labelledby="upload-title">
     <p class="section-index">Nueva partitura</p>

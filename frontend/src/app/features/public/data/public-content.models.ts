@@ -5,6 +5,7 @@ export interface NewsPost {
   publishedAt: string;
   createdAt: string;
   updatedAt: string;
+  version: number;
 }
 
 export interface PublicEvent {
@@ -29,6 +30,7 @@ export interface Album {
   photos: Photo[];
   createdAt: string;
   updatedAt: string;
+  version: number;
 }
 
 export interface VideoLink {
@@ -37,6 +39,7 @@ export interface VideoLink {
   url: string;
   createdAt: string;
   updatedAt: string;
+  version: number;
 }
 
 export interface CourseAnnouncement {
@@ -50,6 +53,7 @@ export interface CourseAnnouncement {
   minimumAge: number;
   createdAt: string;
   updatedAt: string;
+  version: number;
 }
 
 export interface ContactRequest {

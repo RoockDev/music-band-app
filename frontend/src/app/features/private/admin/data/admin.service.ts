@@ -15,6 +15,7 @@ import {
   AdminPermissions,
   AuditLog,
   Collection,
+  CollectionMutation,
   CourseMutation,
   CreateUserResult,
   EventCreateMutation,
@@ -154,6 +155,20 @@ export class AdminService {
       .pipe(switchMap(() => this.http.post<Collection>('/api/collections', request)));
   }
 
+  updateCollection(id: number, request: Required<CollectionMutation>): Observable<Collection> {
+    return this.csrf
+      .ensureToken()
+      .pipe(switchMap(() => this.http.put<Collection>(`/api/collections/${id}`, request)));
+  }
+
+  deleteCollection(id: number, version: number): Observable<void> {
+    return this.csrf
+      .ensureToken()
+      .pipe(
+        switchMap(() => this.http.delete<void>(`/api/collections/${id}`, { params: { version } })),
+      );
+  }
+
   getManagedSheetMusic(): Observable<SheetMusic[]> {
     return this.http.get<SheetMusic[]>('/api/sheet-music/admin');
   }
@@ -181,10 +196,44 @@ export class AdminService {
       .pipe(switchMap(() => this.http.post<NewsPost>('/api/news', request)));
   }
 
+  getManagedNews(): Observable<NewsPost[]> {
+    return this.http.get<NewsPost[]>('/api/news');
+  }
+
+  updateNews(
+    id: number,
+    request: { title: string; body: string; version: number },
+  ): Observable<NewsPost> {
+    return this.csrf
+      .ensureToken()
+      .pipe(switchMap(() => this.http.put<NewsPost>(`/api/news/${id}`, request)));
+  }
+
+  deleteNews(id: number, version: number): Observable<void> {
+    return this.deleteVersioned(`/api/news/${id}`, version);
+  }
+
   createVideo(request: { title: string; url: string }): Observable<VideoLink> {
     return this.csrf
       .ensureToken()
       .pipe(switchMap(() => this.http.post<VideoLink>('/api/videos', request)));
+  }
+
+  getManagedVideos(): Observable<VideoLink[]> {
+    return this.http.get<VideoLink[]>('/api/videos');
+  }
+
+  updateVideo(
+    id: number,
+    request: { title: string; url: string; version: number },
+  ): Observable<VideoLink> {
+    return this.csrf
+      .ensureToken()
+      .pipe(switchMap(() => this.http.put<VideoLink>(`/api/videos/${id}`, request)));
+  }
+
+  deleteVideo(id: number, version: number): Observable<void> {
+    return this.deleteVersioned(`/api/videos/${id}`, version);
   }
 
   createCourse(request: CourseMutation): Observable<CourseAnnouncement> {
@@ -193,10 +242,41 @@ export class AdminService {
       .pipe(switchMap(() => this.http.post<CourseAnnouncement>('/api/courses', request)));
   }
 
+  getManagedCourses(): Observable<CourseAnnouncement[]> {
+    return this.http.get<CourseAnnouncement[]>('/api/courses');
+  }
+
+  updateCourse(id: number, request: Required<CourseMutation>): Observable<CourseAnnouncement> {
+    return this.csrf
+      .ensureToken()
+      .pipe(switchMap(() => this.http.put<CourseAnnouncement>(`/api/courses/${id}`, request)));
+  }
+
+  deleteCourse(id: number, version: number): Observable<void> {
+    return this.deleteVersioned(`/api/courses/${id}`, version);
+  }
+
   createAlbum(request: { name: string; description: string | null }): Observable<Album> {
     return this.csrf
       .ensureToken()
       .pipe(switchMap(() => this.http.post<Album>('/api/albums', request)));
+  }
+
+  getManagedAlbums(): Observable<Album[]> {
+    return this.http.get<Album[]>('/api/albums');
+  }
+
+  updateAlbum(
+    id: number,
+    request: { name: string; description: string | null; version: number },
+  ): Observable<Album> {
+    return this.csrf
+      .ensureToken()
+      .pipe(switchMap(() => this.http.put<Album>(`/api/albums/${id}`, request)));
+  }
+
+  deleteAlbum(id: number, version: number): Observable<void> {
+    return this.deleteVersioned(`/api/albums/${id}`, version);
   }
 
   uploadPhoto(albumId: number, file: File, caption: string | null): Observable<Photo> {
@@ -210,8 +290,20 @@ export class AdminService {
       .pipe(switchMap(() => this.http.post<Photo>(`/api/albums/${albumId}/photos`, form)));
   }
 
+  deletePhoto(photoId: number): Observable<void> {
+    return this.csrf
+      .ensureToken()
+      .pipe(switchMap(() => this.http.delete<void>(`/api/albums/photos/${photoId}`)));
+  }
+
   getAuditHistory(entityType: string, entityId: number): Observable<AuditLog[]> {
     return this.http.get<AuditLog[]>(`/api/audit/${encodeURIComponent(entityType)}/${entityId}`);
+  }
+
+  private deleteVersioned(url: string, version: number): Observable<void> {
+    return this.csrf
+      .ensureToken()
+      .pipe(switchMap(() => this.http.delete<void>(url, { params: { version } })));
   }
 }
 
