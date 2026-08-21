@@ -8,4 +8,6 @@ public interface SheetMusicianAccessRepository extends JpaRepository<SheetMusici
     /** {@link SheetMusicAccessService#canAccess} uses this for the "individually scoped in
      * {@code sheet_musician_access}" arm of the union check. */
     boolean existsBySheetMusicAndMusician(SheetMusic sheetMusic, UserAccount musician);
+
+    long countByMusician(UserAccount musician);
 }

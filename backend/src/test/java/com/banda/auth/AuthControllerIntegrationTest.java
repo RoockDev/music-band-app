@@ -115,6 +115,28 @@ class AuthControllerIntegrationTest extends IntegrationTestBase {
     }
 
     @Test
+    void activationPasswordPolicyAcceptsEightAndSixtyFourCharactersAndRejectsAdjacentLengths() throws Exception {
+        Cookie csrf = fetchCsrfCookie();
+        UserAccount minimumUser = userAccountRepository.saveAndFlush(
+                new UserAccount("activation-minimum@example.com", UserRole.MUSICIAN, UserStatus.PENDING, FIXED_NOW));
+        String minimumToken = "activation-minimum-token";
+        passwordTokenRepository.saveAndFlush(new PasswordToken(minimumUser, PasswordTokenType.ACTIVATION,
+                TokenHasher.sha256Hex(minimumToken), FIXED_NOW.plus(Duration.ofDays(1)), FIXED_NOW));
+
+        completeActivation(csrf, minimumToken, "A".repeat(7), 400);
+        completeActivation(csrf, minimumToken, "A".repeat(8), 200);
+
+        UserAccount maximumUser = userAccountRepository.saveAndFlush(
+                new UserAccount("activation-maximum@example.com", UserRole.MUSICIAN, UserStatus.PENDING, FIXED_NOW));
+        String maximumToken = "activation-maximum-token";
+        passwordTokenRepository.saveAndFlush(new PasswordToken(maximumUser, PasswordTokenType.ACTIVATION,
+                TokenHasher.sha256Hex(maximumToken), FIXED_NOW.plus(Duration.ofDays(1)), FIXED_NOW));
+
+        completeActivation(csrf, maximumToken, "B".repeat(65), 400);
+        completeActivation(csrf, maximumToken, "B".repeat(64), 200);
+    }
+
+    @Test
     void loginSetsAccessTokenCookieOnSuccess() throws Exception {
         UserAccount user = new UserAccount("login@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, FIXED_NOW);
         user.setPasswordHash(passwordEncoder.encode("CorrectPass1!"));
@@ -375,6 +397,50 @@ class AuthControllerIntegrationTest extends IntegrationTestBase {
 
         PasswordToken reloadedOther = passwordTokenRepository.findById(otherOutstanding.getId()).orElseThrow();
         assertThat(reloadedOther.isUsed()).isTrue();
+    }
+
+    @Test
+    void resetPasswordPolicyAcceptsEightAndSixtyFourCharactersAndRejectsAdjacentLengths() throws Exception {
+        Cookie csrf = fetchCsrfCookie();
+        UserAccount minimumUser = new UserAccount(
+                "reset-minimum@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, FIXED_NOW);
+        minimumUser.setPasswordHash(passwordEncoder.encode("OldPass1!"));
+        userAccountRepository.saveAndFlush(minimumUser);
+        String minimumToken = "reset-minimum-token";
+        passwordTokenRepository.saveAndFlush(new PasswordToken(minimumUser, PasswordTokenType.RESET,
+                TokenHasher.sha256Hex(minimumToken), FIXED_NOW.plus(Duration.ofHours(1)), FIXED_NOW));
+
+        completePasswordReset(csrf, minimumToken, "A".repeat(7), 400);
+        completePasswordReset(csrf, minimumToken, "A".repeat(8), 200);
+
+        UserAccount maximumUser = new UserAccount(
+                "reset-maximum@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, FIXED_NOW);
+        maximumUser.setPasswordHash(passwordEncoder.encode("OldPass1!"));
+        userAccountRepository.saveAndFlush(maximumUser);
+        String maximumToken = "reset-maximum-token";
+        passwordTokenRepository.saveAndFlush(new PasswordToken(maximumUser, PasswordTokenType.RESET,
+                TokenHasher.sha256Hex(maximumToken), FIXED_NOW.plus(Duration.ofHours(1)), FIXED_NOW));
+
+        completePasswordReset(csrf, maximumToken, "B".repeat(65), 400);
+        completePasswordReset(csrf, maximumToken, "B".repeat(64), 200);
+    }
+
+    private void completeActivation(Cookie csrf, String token, String password, int expectedStatus) throws Exception {
+        mockMvc.perform(post("/api/auth/activate")
+                        .cookie(csrf)
+                        .header("X-XSRF-TOKEN", csrf.getValue())
+                        .contentType("application/json")
+                        .content("{\"token\":\"" + token + "\",\"newPassword\":\"" + password + "\"}"))
+                .andExpect(status().is(expectedStatus));
+    }
+
+    private void completePasswordReset(Cookie csrf, String token, String password, int expectedStatus) throws Exception {
+        mockMvc.perform(post("/api/auth/password-reset/complete")
+                        .cookie(csrf)
+                        .header("X-XSRF-TOKEN", csrf.getValue())
+                        .contentType("application/json")
+                        .content("{\"token\":\"" + token + "\",\"newPassword\":\"" + password + "\"}"))
+                .andExpect(status().is(expectedStatus));
     }
 
     @Test

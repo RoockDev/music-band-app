@@ -12,4 +12,6 @@ public interface EventMusicianAccessRepository extends JpaRepository<EventMusici
     boolean existsByEventAndMusician(Event event, UserAccount musician);
 
     List<EventMusicianAccess> findByEvent(Event event);
+
+    long countByMusician(UserAccount musician);
 }

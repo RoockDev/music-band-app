@@ -27,4 +27,9 @@ public interface AdminPermissionRepository extends JpaRepository<AdminPermission
     @Query("delete from AdminPermission adminPermission where adminPermission.admin = :admin"
             + " and adminPermission.permission = :permission")
     int deleteByAdminAndPermission(UserAccount admin, Permission permission);
+
+    @Transactional
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("delete from AdminPermission adminPermission where adminPermission.admin = :admin")
+    int deleteByAdmin(UserAccount admin);
 }

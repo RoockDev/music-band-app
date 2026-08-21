@@ -1,8 +1,12 @@
 package com.banda.users;
 
 import com.banda.audit.AuditService;
+import com.banda.events.EventMusicianAccessRepository;
+import com.banda.groups.MusicianGroupRepository;
+import com.banda.security.AdminPermissionRepository;
 import com.banda.security.Permission;
 import com.banda.security.PermissionService;
+import com.banda.sheetmusic.SheetMusicianAccessRepository;
 import com.banda.security.TokenHasher;
 import com.banda.users.dto.CreateUserRequest;
 import com.banda.users.dto.UpdateUserRequest;
@@ -60,6 +64,10 @@ public class UserService {
 
     private final UserAccountRepository userAccountRepository;
     private final PasswordTokenRepository passwordTokenRepository;
+    private final AdminPermissionRepository adminPermissionRepository;
+    private final MusicianGroupRepository musicianGroupRepository;
+    private final EventMusicianAccessRepository eventMusicianAccessRepository;
+    private final SheetMusicianAccessRepository sheetMusicianAccessRepository;
     private final PermissionService permissionService;
     private final AuditService auditService;
     private final Clock clock;
@@ -67,12 +75,20 @@ public class UserService {
 
     public UserService(UserAccountRepository userAccountRepository,
                         PasswordTokenRepository passwordTokenRepository,
+                        AdminPermissionRepository adminPermissionRepository,
+                        MusicianGroupRepository musicianGroupRepository,
+                        EventMusicianAccessRepository eventMusicianAccessRepository,
+                        SheetMusicianAccessRepository sheetMusicianAccessRepository,
                         PermissionService permissionService,
                         AuditService auditService,
                         Clock clock,
                         @Value("${app.auth.activation-token-ttl}") Duration activationTokenTtl) {
         this.userAccountRepository = userAccountRepository;
         this.passwordTokenRepository = passwordTokenRepository;
+        this.adminPermissionRepository = adminPermissionRepository;
+        this.musicianGroupRepository = musicianGroupRepository;
+        this.eventMusicianAccessRepository = eventMusicianAccessRepository;
+        this.sheetMusicianAccessRepository = sheetMusicianAccessRepository;
         this.permissionService = permissionService;
         this.auditService = auditService;
         this.clock = clock;
@@ -119,19 +135,44 @@ public class UserService {
     }
 
     public UserAccount edit(UserAccount actor, Long userId, UpdateUserRequest request) {
-        permissionService.requirePermission(actor, Permission.MANAGE_USERS);
         requireNotSelf(actor, userId);
-        UserAccount user = requireUser(userId);
+        LockedMutationAccounts accounts = lockActorAndTarget(actor, userId);
+        UserAccount managedActor = accounts.actor();
+        UserAccount user = accounts.target();
+        permissionService.requirePermission(managedActor, Permission.MANAGE_USERS);
         requireValidMinorFields(request.minor(), request.guardianContact(), request.consentOnFile());
 
-        if (request.role() != user.getRole()) {
-            // An actual role change (either direction) is strictly more privileged than
-            // ordinary profile CRUD — MANAGE_USERS alone must never be enough.
-            permissionService.requirePermission(actor, Permission.MANAGE_ADMIN_ROLES);
+        boolean roleChanged = request.role() != user.getRole();
+        if (user.getRole() == UserRole.ADMIN || roleChanged) {
+            // Every mutation of an ADMIN target is privileged, including an email-only edit.
+            // This closes the email-replacement -> password-reset account-takeover chain.
+            permissionService.requirePermission(managedActor, Permission.MANAGE_ADMIN_ROLES);
+        }
+        if (!Objects.equals(request.version(), user.getVersion())) {
+            throw new ConcurrentUserModificationException();
+        }
+        if (user.getRole() == UserRole.MUSICIAN && request.role() == UserRole.ADMIN) {
+            requireNoMusicianDependencies(user);
         }
 
         if (!user.getEmail().equalsIgnoreCase(request.email()) && userAccountRepository.existsByEmail(request.email())) {
             throw new DuplicateEmailException();
+        }
+
+        boolean changed = !Objects.equals(user.getEmail(), request.email())
+                || roleChanged
+                || user.isMinor() != request.minor()
+                || !Objects.equals(user.getGuardianContact(), request.minor() ? request.guardianContact() : null)
+                || user.isConsentOnFile() != (request.minor() && request.consentOnFile());
+        if (!changed) {
+            return user;
+        }
+
+        if (user.getRole() == UserRole.ADMIN && request.role() == UserRole.MUSICIAN) {
+            // The actor and target rows were locked in stable id order and permissions were
+            // rechecked after locking. Concurrent mutual demotions therefore serialize; the
+            // first winner revokes the loser's grants, so the loser cannot demote the winner.
+            adminPermissionRepository.deleteByAdmin(user);
         }
 
         user.setEmail(request.email());
@@ -153,7 +194,7 @@ public class UserService {
             throw new DuplicateEmailException();
         }
 
-        auditService.record(actor.getId(), "USER_UPDATED", "UserAccount", userId,
+        auditService.record(managedActor.getId(), "USER_UPDATED", "UserAccount", userId,
                 "role=" + request.role() + ", minor=" + request.minor());
         log.info("User account updated: {}", userId);
 
@@ -175,15 +216,25 @@ public class UserService {
      * (unlike {@link #edit}) this does not surface the race to the caller as an error.
      */
     public void deactivate(UserAccount actor, Long userId) {
-        permissionService.requirePermission(actor, Permission.MANAGE_USERS);
         requireNotSelf(actor, userId);
-        UserAccount user = requireUser(userId);
+        LockedMutationAccounts accounts = lockActorAndTarget(actor, userId);
+        UserAccount managedActor = accounts.actor();
+        UserAccount user = accounts.target();
+        permissionService.requirePermission(managedActor, Permission.MANAGE_USERS);
+        if (user.getRole() == UserRole.ADMIN) {
+            permissionService.requirePermission(managedActor, Permission.MANAGE_ADMIN_ROLES);
+        }
 
-        if (!applyDeactivationWithRetry(user, userId)) {
+        if (user.getStatus() == UserStatus.DEACTIVATED) {
             return;
         }
 
-        auditService.record(actor.getId(), "USER_DEACTIVATED", "UserAccount", userId);
+        user.setStatus(UserStatus.DEACTIVATED);
+        user.bumpTokenVersion();
+        user.touch(clock.instant());
+        userAccountRepository.saveAndFlush(user);
+
+        auditService.record(managedActor.getId(), "USER_DEACTIVATED", "UserAccount", userId);
         log.info("User account deactivated: {}", userId);
     }
 
@@ -199,42 +250,32 @@ public class UserService {
         return userAccountRepository.findAll();
     }
 
-    /**
-     * Returns {@code true} if this call actually performed the deactivation, {@code false} if
-     * the account was already {@code DEACTIVATED} — either found that way on entry, or
-     * discovered that way on the retry reload after losing the initial optimistic-lock race
-     * (a concurrent winner deactivated it first). If the retry itself also loses the race,
-     * that failure is allowed to propagate uncaught, matching
-     * {@code AuthService#bumpTokenVersionWithRetry}'s "fail loudly rather than silently drop
-     * it" contract.
-     */
-    private boolean applyDeactivationWithRetry(UserAccount user, Long userId) {
-        if (user.getStatus() == UserStatus.DEACTIVATED) {
-            return false;
-        }
-
-        user.setStatus(UserStatus.DEACTIVATED);
-        user.bumpTokenVersion();
-        user.touch(clock.instant());
-        try {
-            userAccountRepository.saveAndFlush(user);
-            return true;
-        } catch (ObjectOptimisticLockingFailureException e) {
-            UserAccount fresh = userAccountRepository.findById(userId).orElseThrow(() -> e);
-            if (fresh.getStatus() == UserStatus.DEACTIVATED) {
-                return false;
-            }
-            fresh.setStatus(UserStatus.DEACTIVATED);
-            fresh.bumpTokenVersion();
-            fresh.touch(clock.instant());
-            userAccountRepository.saveAndFlush(fresh);
-            return true;
-        }
-    }
-
     private UserAccount requireUser(Long userId) {
         return userAccountRepository.findById(userId)
                 .orElseThrow(() -> new UserNotFoundException(userId));
+    }
+
+    private LockedMutationAccounts lockActorAndTarget(UserAccount actor, Long userId) {
+        List<Long> ids = List.of(actor.getId(), userId).stream().distinct().sorted().toList();
+        List<UserAccount> locked = userAccountRepository.findAllByIdForPermissionMutation(ids);
+        UserAccount managedActor = locked.stream()
+                .filter(account -> Objects.equals(account.getId(), actor.getId()))
+                .findFirst()
+                .orElseThrow(() -> new UserNotFoundException(actor.getId()));
+        UserAccount target = locked.stream()
+                .filter(account -> Objects.equals(account.getId(), userId))
+                .findFirst()
+                .orElseThrow(() -> new UserNotFoundException(userId));
+        return new LockedMutationAccounts(managedActor, target);
+    }
+
+    private void requireNoMusicianDependencies(UserAccount musician) {
+        long groupMemberships = musicianGroupRepository.countByMusician(musician);
+        long eventGrants = eventMusicianAccessRepository.countByMusician(musician);
+        long sheetMusicGrants = sheetMusicianAccessRepository.countByMusician(musician);
+        if (groupMemberships > 0 || eventGrants > 0 || sheetMusicGrants > 0) {
+            throw new UserRoleTransitionConflictException(groupMemberships, eventGrants, sheetMusicGrants);
+        }
     }
 
     /** No actor may edit/deactivate their own account via this service (Sec.2), full stop. */
@@ -265,5 +306,8 @@ public class UserService {
     }
 
     public record CreateUserResult(UserAccount user, String activationToken) {
+    }
+
+    private record LockedMutationAccounts(UserAccount actor, UserAccount target) {
     }
 }

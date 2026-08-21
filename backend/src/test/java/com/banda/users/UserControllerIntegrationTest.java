@@ -2,6 +2,7 @@ package com.banda.users;
 
 import com.banda.audit.AuditLog;
 import com.banda.audit.AuditLogRepository;
+import com.banda.common.EmailSender;
 import com.banda.security.AdminPermission;
 import com.banda.security.AdminPermissionRepository;
 import com.banda.security.Permission;
@@ -18,6 +19,7 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -25,6 +27,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -60,6 +63,9 @@ class UserControllerIntegrationTest extends IntegrationTestBase {
 
     @Autowired
     private PasswordEncoder passwordEncoder;
+
+    @MockitoBean
+    private EmailSender emailSender;
 
     private Cookie fetchCsrfCookie() throws Exception {
         MvcResult result = mockMvc.perform(get("/api/auth/csrf")).andReturn();
@@ -185,7 +191,8 @@ class UserControllerIntegrationTest extends IntegrationTestBase {
                         .header("X-XSRF-TOKEN", csrf.getValue())
                         .contentType("application/json")
                         .content("{\"email\":\"edited@example.com\",\"role\":\"MUSICIAN\","
-                                + "\"minor\":false,\"consentOnFile\":false}"))
+                                + "\"minor\":false,\"consentOnFile\":false,\"version\":"
+                                + target.getVersion() + "}"))
                 .andExpect(status().isOk());
 
         List<AuditLog> history = auditLogRepository.findByEntityTypeAndEntityIdOrderByTimestampDescIdDesc(
@@ -272,7 +279,8 @@ class UserControllerIntegrationTest extends IntegrationTestBase {
                         .header("X-XSRF-TOKEN", csrf.getValue())
                         .contentType("application/json")
                         .content("{\"email\":\"wont-happen@example.com\",\"role\":\"MUSICIAN\","
-                                + "\"minor\":false,\"consentOnFile\":false}"))
+                                + "\"minor\":false,\"consentOnFile\":false,\"version\":"
+                                + target.getVersion() + "}"))
                 .andExpect(status().isForbidden());
 
         assertThat(userAccountRepository.findById(target.getId()).orElseThrow().getEmail())
@@ -342,6 +350,7 @@ class UserControllerIntegrationTest extends IntegrationTestBase {
                         .header("X-XSRF-TOKEN", csrf.getValue()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[?(@.id == " + other.getId() + ")].email").value("listed-musician@example.com"))
+                .andExpect(jsonPath("$[?(@.id == " + other.getId() + ")].version").exists())
                 .andExpect(jsonPath("$[?(@.id == " + admin.getId() + ")].email").value("admin-list-ok@example.com"));
     }
 
@@ -386,7 +395,8 @@ class UserControllerIntegrationTest extends IntegrationTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(target.getId()))
                 .andExpect(jsonPath("$.email").value("get-target-ok@example.com"))
-                .andExpect(jsonPath("$.role").value("MUSICIAN"));
+                .andExpect(jsonPath("$.role").value("MUSICIAN"))
+                .andExpect(jsonPath("$.version").value(target.getVersion()));
     }
 
     @Test
@@ -439,7 +449,8 @@ class UserControllerIntegrationTest extends IntegrationTestBase {
                         .header("X-XSRF-TOKEN", csrf.getValue())
                         .contentType("application/json")
                         .content("{\"email\":\"promote-target@example.com\",\"role\":\"ADMIN\","
-                                + "\"minor\":false,\"consentOnFile\":false}"))
+                                + "\"minor\":false,\"consentOnFile\":false,\"version\":"
+                                + target.getVersion() + "}"))
                 .andExpect(status().isForbidden());
 
         assertThat(userAccountRepository.findById(target.getId()).orElseThrow().getRole()).isEqualTo(UserRole.MUSICIAN);
@@ -461,7 +472,8 @@ class UserControllerIntegrationTest extends IntegrationTestBase {
                         .header("X-XSRF-TOKEN", csrf.getValue())
                         .contentType("application/json")
                         .content("{\"email\":\"promote-target-ok@example.com\",\"role\":\"ADMIN\","
-                                + "\"minor\":false,\"consentOnFile\":false}"))
+                                + "\"minor\":false,\"consentOnFile\":false,\"version\":"
+                                + target.getVersion() + "}"))
                 .andExpect(status().isOk());
 
         assertThat(userAccountRepository.findById(target.getId()).orElseThrow().getRole()).isEqualTo(UserRole.ADMIN);
@@ -482,7 +494,8 @@ class UserControllerIntegrationTest extends IntegrationTestBase {
                         .header("X-XSRF-TOKEN", csrf.getValue())
                         .contentType("application/json")
                         .content("{\"email\":\"self-changed@example.com\",\"role\":\"ADMIN\","
-                                + "\"minor\":false,\"consentOnFile\":false}"))
+                                + "\"minor\":false,\"consentOnFile\":false,\"version\":"
+                                + admin.getVersion() + "}"))
                 .andExpect(status().isForbidden());
 
         assertThat(userAccountRepository.findById(admin.getId()).orElseThrow().getEmail())
@@ -535,6 +548,67 @@ class UserControllerIntegrationTest extends IntegrationTestBase {
         List<AuditLog> history = auditLogRepository.findByEntityTypeAndEntityIdOrderByTimestampDescIdDesc(
                 "UserAccount", target.getId());
         assertThat(history).hasSize(1);
+    }
+
+    @Test
+    void manageUsersAloneCannotReplaceAnotherAdminsEmailAndChainAPasswordReset() throws Exception {
+        UserAccount attacker = persistActiveAdmin("takeover-actor@example.com", "AdminPass1!");
+        adminPermissionRepository.saveAndFlush(new AdminPermission(attacker, Permission.MANAGE_USERS));
+        UserAccount victim = persistActiveAdmin("takeover-victim@example.com", "VictimPass1!");
+
+        Cookie csrf = fetchCsrfCookie();
+        Cookie accessToken = loginAndGetAccessTokenCookie("takeover-actor@example.com", "AdminPass1!", csrf);
+
+        mockMvc.perform(put("/api/users/" + victim.getId())
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue())
+                        .contentType("application/json")
+                        .content("{\"email\":\"takeover-mailbox@example.com\",\"role\":\"ADMIN\","
+                                + "\"minor\":false,\"consentOnFile\":false,\"version\":"
+                                + victim.getVersion() + "}"))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(post("/api/auth/password-reset/request")
+                        .cookie(csrf)
+                        .header("X-XSRF-TOKEN", csrf.getValue())
+                        .contentType("application/json")
+                        .content("{\"email\":\"takeover-mailbox@example.com\"}"))
+                .andExpect(status().isAccepted());
+
+        assertThat(userAccountRepository.findById(victim.getId()).orElseThrow().getEmail())
+                .isEqualTo("takeover-victim@example.com");
+        verifyNoInteractions(emailSender);
+    }
+
+    @Test
+    void sequentialStaleUserEditReturnsConflictAndPreservesTheWinningWrite() throws Exception {
+        UserAccount admin = persistActiveAdmin("stale-user-admin@example.com", "AdminPass1!");
+        adminPermissionRepository.saveAndFlush(new AdminPermission(admin, Permission.MANAGE_USERS));
+        UserAccount target = userAccountRepository.saveAndFlush(
+                new UserAccount("stale-user-target@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, FIXED_NOW));
+        long staleVersion = target.getVersion();
+        Cookie csrf = fetchCsrfCookie();
+        Cookie accessToken = loginAndGetAccessTokenCookie("stale-user-admin@example.com", "AdminPass1!", csrf);
+
+        mockMvc.perform(put("/api/users/" + target.getId())
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue())
+                        .contentType("application/json")
+                        .content("{\"email\":\"winning-user-write@example.com\",\"role\":\"MUSICIAN\","
+                                + "\"minor\":false,\"consentOnFile\":false,\"version\":" + staleVersion + "}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.version").value(staleVersion + 1));
+
+        mockMvc.perform(put("/api/users/" + target.getId())
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue())
+                        .contentType("application/json")
+                        .content("{\"email\":\"losing-user-write@example.com\",\"role\":\"MUSICIAN\","
+                                + "\"minor\":false,\"consentOnFile\":false,\"version\":" + staleVersion + "}"))
+                .andExpect(status().isConflict());
+
+        assertThat(userAccountRepository.findById(target.getId()).orElseThrow().getEmail())
+                .isEqualTo("winning-user-write@example.com");
     }
 
     @TestConfiguration

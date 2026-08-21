@@ -28,6 +28,8 @@ public interface MusicianGroupRepository extends JpaRepository<MusicianGroup, Lo
 
     List<MusicianGroup> findByMusician(UserAccount musician);
 
+    long countByMusician(UserAccount musician);
+
     /**
      * Derived delete queries run outside {@code SimpleJpaRepository}'s own transactional
      * wrapping, so this needs its own {@code @Transactional} to have an EntityManager

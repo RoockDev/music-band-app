@@ -95,4 +95,9 @@ public class UserController {
     public ResponseEntity<Map<String, String>> handleConcurrentModification(ConcurrentUserModificationException e) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", e.getMessage()));
     }
+
+    @ExceptionHandler(UserRoleTransitionConflictException.class)
+    public ResponseEntity<Map<String, String>> handleRoleTransitionConflict(UserRoleTransitionConflictException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", e.getMessage()));
+    }
 }

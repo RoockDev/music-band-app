@@ -1,9 +1,13 @@
 package com.banda.users;
 
 import com.banda.audit.AuditService;
+import com.banda.events.EventMusicianAccessRepository;
+import com.banda.groups.MusicianGroupRepository;
+import com.banda.security.AdminPermissionRepository;
 import com.banda.security.Permission;
 import com.banda.security.PermissionDeniedException;
 import com.banda.security.PermissionService;
+import com.banda.sheetmusic.SheetMusicianAccessRepository;
 import com.banda.users.dto.CreateUserRequest;
 import com.banda.users.dto.UpdateUserRequest;
 import org.junit.jupiter.api.BeforeEach;
@@ -53,6 +57,10 @@ class UserServiceTest {
 
     private UserAccountRepository userAccountRepository;
     private PasswordTokenRepository passwordTokenRepository;
+    private AdminPermissionRepository adminPermissionRepository;
+    private MusicianGroupRepository musicianGroupRepository;
+    private EventMusicianAccessRepository eventMusicianAccessRepository;
+    private SheetMusicianAccessRepository sheetMusicianAccessRepository;
     private PermissionService permissionService;
     private AuditService auditService;
     private UserService userService;
@@ -61,10 +69,15 @@ class UserServiceTest {
     void setUp() {
         userAccountRepository = mock(UserAccountRepository.class);
         passwordTokenRepository = mock(PasswordTokenRepository.class);
+        adminPermissionRepository = mock(AdminPermissionRepository.class);
+        musicianGroupRepository = mock(MusicianGroupRepository.class);
+        eventMusicianAccessRepository = mock(EventMusicianAccessRepository.class);
+        sheetMusicianAccessRepository = mock(SheetMusicianAccessRepository.class);
         permissionService = mock(PermissionService.class);
         auditService = mock(AuditService.class);
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
-        userService = new UserService(userAccountRepository, passwordTokenRepository,
+        userService = new UserService(userAccountRepository, passwordTokenRepository, adminPermissionRepository,
+                musicianGroupRepository, eventMusicianAccessRepository, sheetMusicianAccessRepository,
                 permissionService, auditService, clock, ACTIVATION_TTL);
 
         when(userAccountRepository.saveAndFlush(any(UserAccount.class)))
@@ -72,7 +85,10 @@ class UserServiceTest {
     }
 
     private UserAccount adminActor() {
-        return new UserAccount("admin@example.com", UserRole.ADMIN, UserStatus.ACTIVE, NOW);
+        UserAccount actor = new UserAccount("admin@example.com", UserRole.ADMIN, UserStatus.ACTIVE, NOW);
+        ReflectionTestUtils.setField(actor, "id", 1L);
+        ReflectionTestUtils.setField(actor, "version", 0L);
+        return actor;
     }
 
     private static CreateUserRequest createRequest(String email, UserRole role) {
@@ -80,7 +96,19 @@ class UserServiceTest {
     }
 
     private static UpdateUserRequest updateRequest(String email, UserRole role) {
-        return new UpdateUserRequest(email, role, false, null, false);
+        return new UpdateUserRequest(email, role, false, null, false, 0L);
+    }
+
+    private void prepareMutation(UserAccount actor, Long id, UserAccount target) {
+        ReflectionTestUtils.setField(target, "id", id);
+        ReflectionTestUtils.setField(target, "version", 0L);
+        when(userAccountRepository.findAllByIdForPermissionMutation(List.of(actor.getId(), id).stream().sorted().toList()))
+                .thenReturn(List.of(actor, target).stream().sorted((left, right) -> left.getId().compareTo(right.getId())).toList());
+    }
+
+    private void prepareMissingMutation(UserAccount actor, Long id) {
+        when(userAccountRepository.findAllByIdForPermissionMutation(List.of(actor.getId(), id).stream().sorted().toList()))
+                .thenReturn(List.of(actor));
     }
 
     // ---- create() ----
@@ -228,7 +256,7 @@ class UserServiceTest {
         UserAccount actor = adminActor();
         UserAccount existing = new UserAccount("musician4@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, NOW);
         long versionBefore = existing.getTokenVersion();
-        when(userAccountRepository.findById(42L)).thenReturn(Optional.of(existing));
+        prepareMutation(actor, 42L, existing);
 
         userService.deactivate(actor, 42L);
 
@@ -241,7 +269,7 @@ class UserServiceTest {
     @Test
     void deactivateOnAnUnknownUserThrowsUserNotFoundException() {
         UserAccount actor = adminActor();
-        when(userAccountRepository.findById(999L)).thenReturn(Optional.empty());
+        prepareMissingMutation(actor, 999L);
 
         assertThatThrownBy(() -> userService.deactivate(actor, 999L))
                 .isInstanceOf(UserNotFoundException.class);
@@ -252,13 +280,13 @@ class UserServiceTest {
     @Test
     void deactivateChecksTheManageUsersPermission() {
         UserAccount actor = adminActor();
+        UserAccount target = new UserAccount("target@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, NOW);
+        prepareMutation(actor, 2L, target);
         doThrow(new PermissionDeniedException(Permission.MANAGE_USERS))
                 .when(permissionService).requirePermission(actor, Permission.MANAGE_USERS);
 
-        assertThatThrownBy(() -> userService.deactivate(actor, 1L))
+        assertThatThrownBy(() -> userService.deactivate(actor, 2L))
                 .isInstanceOf(PermissionDeniedException.class);
-
-        verifyNoInteractions(userAccountRepository);
     }
 
     @Test
@@ -266,53 +294,13 @@ class UserServiceTest {
         UserAccount actor = adminActor();
         UserAccount existing = new UserAccount("already-deactivated@example.com", UserRole.MUSICIAN, UserStatus.DEACTIVATED, NOW);
         long versionBefore = existing.getTokenVersion();
-        when(userAccountRepository.findById(50L)).thenReturn(Optional.of(existing));
+        prepareMutation(actor, 50L, existing);
 
         userService.deactivate(actor, 50L);
 
         assertThat(existing.getTokenVersion()).isEqualTo(versionBefore);
         assertThat(existing.getStatus()).isEqualTo(UserStatus.DEACTIVATED);
         verify(userAccountRepository, never()).saveAndFlush(any());
-        verifyNoInteractions(auditService);
-    }
-
-    @Test
-    void deactivateRetriesOnceAfterALostOptimisticLockRaceThenSucceeds() {
-        UserAccount actor = adminActor();
-        UserAccount stale = new UserAccount("race-deactivate@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, NOW);
-        ReflectionTestUtils.setField(stale, "id", 40L);
-        UserAccount fresh = new UserAccount("race-deactivate@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, NOW);
-        ReflectionTestUtils.setField(fresh, "id", 40L);
-
-        when(userAccountRepository.findById(40L)).thenReturn(Optional.of(stale), Optional.of(fresh));
-        when(userAccountRepository.saveAndFlush(stale))
-                .thenThrow(new ObjectOptimisticLockingFailureException(UserAccount.class, 40L));
-        when(userAccountRepository.saveAndFlush(fresh)).thenReturn(fresh);
-
-        userService.deactivate(actor, 40L);
-
-        assertThat(fresh.getStatus()).isEqualTo(UserStatus.DEACTIVATED);
-        verify(userAccountRepository).saveAndFlush(fresh);
-        verify(auditService).record(eq(actor.getId()), eq("USER_DEACTIVATED"), eq("UserAccount"), eq(40L));
-    }
-
-    @Test
-    void deactivateSkipsTheRetryMutationIfTheReloadedAccountIsAlreadyDeactivatedByTheRaceWinner() {
-        UserAccount actor = adminActor();
-        UserAccount stale = new UserAccount("race-deactivate2@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, NOW);
-        ReflectionTestUtils.setField(stale, "id", 41L);
-        UserAccount alreadyDeactivatedByWinner = new UserAccount(
-                "race-deactivate2@example.com", UserRole.MUSICIAN, UserStatus.DEACTIVATED, NOW);
-        ReflectionTestUtils.setField(alreadyDeactivatedByWinner, "id", 41L);
-
-        when(userAccountRepository.findById(41L))
-                .thenReturn(Optional.of(stale), Optional.of(alreadyDeactivatedByWinner));
-        when(userAccountRepository.saveAndFlush(stale))
-                .thenThrow(new ObjectOptimisticLockingFailureException(UserAccount.class, 41L));
-
-        userService.deactivate(actor, 41L);
-
-        verify(userAccountRepository, never()).saveAndFlush(alreadyDeactivatedByWinner);
         verifyNoInteractions(auditService);
     }
 
@@ -334,7 +322,7 @@ class UserServiceTest {
     void editUpdatesFieldsWithoutARoleChangeAndWritesAnAuditRecord() {
         UserAccount actor = adminActor();
         UserAccount existing = new UserAccount("old@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, NOW);
-        when(userAccountRepository.findById(7L)).thenReturn(Optional.of(existing));
+        prepareMutation(actor, 7L, existing);
 
         UserAccount edited = userService.edit(actor, 7L, updateRequest("new@example.com", UserRole.MUSICIAN));
 
@@ -349,19 +337,21 @@ class UserServiceTest {
     void editingAnUnchangedEmailIsNotTreatedAsADuplicate() {
         UserAccount actor = adminActor();
         UserAccount existing = new UserAccount("same@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, NOW);
-        when(userAccountRepository.findById(8L)).thenReturn(Optional.of(existing));
+        prepareMutation(actor, 8L, existing);
 
         assertThatCode(() -> userService.edit(actor, 8L, updateRequest("same@example.com", UserRole.MUSICIAN)))
                 .doesNotThrowAnyException();
 
         verify(userAccountRepository, never()).existsByEmail(anyString());
+        verify(userAccountRepository, never()).saveAndFlush(existing);
+        verifyNoInteractions(auditService);
     }
 
     @Test
     void editRejectsChangingToAnEmailAlreadyHeldByAnotherAccount() {
         UserAccount actor = adminActor();
         UserAccount existing = new UserAccount("current@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, NOW);
-        when(userAccountRepository.findById(9L)).thenReturn(Optional.of(existing));
+        prepareMutation(actor, 9L, existing);
         when(userAccountRepository.existsByEmail("someoneelses@example.com")).thenReturn(true);
 
         assertThatThrownBy(() -> userService.edit(
@@ -373,7 +363,7 @@ class UserServiceTest {
     void editTranslatesALostUniqueConstraintRaceIntoADuplicateEmailException() {
         UserAccount actor = adminActor();
         UserAccount existing = new UserAccount("race-edit@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, NOW);
-        when(userAccountRepository.findById(31L)).thenReturn(Optional.of(existing));
+        prepareMutation(actor, 31L, existing);
         when(userAccountRepository.existsByEmail("taken-race@example.com")).thenReturn(false);
         when(userAccountRepository.saveAndFlush(existing))
                 .thenThrow(new DataIntegrityViolationException("duplicate key value violates unique constraint"));
@@ -387,12 +377,12 @@ class UserServiceTest {
     void editTranslatesALostOptimisticLockRaceIntoAConcurrentUserModificationException() {
         UserAccount actor = adminActor();
         UserAccount existing = new UserAccount("race-edit2@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, NOW);
-        when(userAccountRepository.findById(32L)).thenReturn(Optional.of(existing));
+        prepareMutation(actor, 32L, existing);
         when(userAccountRepository.saveAndFlush(existing))
                 .thenThrow(new ObjectOptimisticLockingFailureException(UserAccount.class, 32L));
 
         assertThatThrownBy(() -> userService.edit(
-                actor, 32L, updateRequest("race-edit2@example.com", UserRole.MUSICIAN)))
+                actor, 32L, updateRequest("race-edit2-changed@example.com", UserRole.MUSICIAN)))
                 .isInstanceOf(ConcurrentUserModificationException.class);
     }
 
@@ -400,17 +390,17 @@ class UserServiceTest {
     void editEnforcesTheSameMinorGuardianConsentRuleAsCreate() {
         UserAccount actor = adminActor();
         UserAccount existing = new UserAccount("kid@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, NOW);
-        when(userAccountRepository.findById(10L)).thenReturn(Optional.of(existing));
+        prepareMutation(actor, 10L, existing);
 
         assertThatThrownBy(() -> userService.edit(actor, 10L,
-                new UpdateUserRequest("kid@example.com", UserRole.MUSICIAN, true, null, true)))
+                new UpdateUserRequest("kid@example.com", UserRole.MUSICIAN, true, null, true, 0L)))
                 .isInstanceOf(InvalidUserDataException.class);
     }
 
     @Test
     void editOnAnUnknownUserThrowsUserNotFoundException() {
         UserAccount actor = adminActor();
-        when(userAccountRepository.findById(404L)).thenReturn(Optional.empty());
+        prepareMissingMutation(actor, 404L);
 
         assertThatThrownBy(() -> userService.edit(actor, 404L, updateRequest("x@example.com", UserRole.MUSICIAN)))
                 .isInstanceOf(UserNotFoundException.class);
@@ -432,7 +422,7 @@ class UserServiceTest {
     void editChangingRoleWithoutManageAdminRolesPermissionIsDenied() {
         UserAccount actor = adminActor();
         UserAccount existing = new UserAccount("promote@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, NOW);
-        when(userAccountRepository.findById(20L)).thenReturn(Optional.of(existing));
+        prepareMutation(actor, 20L, existing);
         doThrow(new PermissionDeniedException(Permission.MANAGE_ADMIN_ROLES))
                 .when(permissionService).requirePermission(actor, Permission.MANAGE_ADMIN_ROLES);
 
@@ -447,7 +437,7 @@ class UserServiceTest {
     void editDemotingAnAdminWithoutManageAdminRolesPermissionIsAlsoDenied() {
         UserAccount actor = adminActor();
         UserAccount existing = new UserAccount("demote@example.com", UserRole.ADMIN, UserStatus.ACTIVE, NOW);
-        when(userAccountRepository.findById(22L)).thenReturn(Optional.of(existing));
+        prepareMutation(actor, 22L, existing);
         doThrow(new PermissionDeniedException(Permission.MANAGE_ADMIN_ROLES))
                 .when(permissionService).requirePermission(actor, Permission.MANAGE_ADMIN_ROLES);
 
@@ -461,7 +451,7 @@ class UserServiceTest {
     void editChangingRoleWithBothPermissionsSucceedsAndWritesAnAuditRecord() {
         UserAccount actor = adminActor();
         UserAccount existing = new UserAccount("promote-ok@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, NOW);
-        when(userAccountRepository.findById(21L)).thenReturn(Optional.of(existing));
+        prepareMutation(actor, 21L, existing);
 
         UserAccount edited = userService.edit(actor, 21L, updateRequest("promote-ok@example.com", UserRole.ADMIN));
 
@@ -475,11 +465,76 @@ class UserServiceTest {
     void editWithoutARoleChangeDoesNotRequireManageAdminRolesPermission() {
         UserAccount actor = adminActor();
         UserAccount existing = new UserAccount("same-role@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, NOW);
-        when(userAccountRepository.findById(23L)).thenReturn(Optional.of(existing));
+        prepareMutation(actor, 23L, existing);
 
         userService.edit(actor, 23L, updateRequest("same-role@example.com", UserRole.MUSICIAN));
 
         verify(permissionService, never()).requirePermission(actor, Permission.MANAGE_ADMIN_ROLES);
+    }
+
+    @Test
+    void editOfAnAdminEmailRequiresManageAdminRolesEvenWithoutARoleChange() {
+        UserAccount actor = adminActor();
+        UserAccount existing = new UserAccount("target-admin@example.com", UserRole.ADMIN, UserStatus.ACTIVE, NOW);
+        prepareMutation(actor, 24L, existing);
+        doThrow(new PermissionDeniedException(Permission.MANAGE_ADMIN_ROLES))
+                .when(permissionService).requirePermission(actor, Permission.MANAGE_ADMIN_ROLES);
+
+        assertThatThrownBy(() -> userService.edit(
+                actor, 24L, updateRequest("attacker@example.com", UserRole.ADMIN)))
+                .isInstanceOf(PermissionDeniedException.class);
+
+        assertThat(existing.getEmail()).isEqualTo("target-admin@example.com");
+        verify(userAccountRepository, never()).saveAndFlush(existing);
+    }
+
+    @Test
+    void editRejectsASequentiallyStaleVersionBeforeApplyingChanges() {
+        UserAccount actor = adminActor();
+        UserAccount existing = new UserAccount("current-version@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, NOW);
+        prepareMutation(actor, 25L, existing);
+        ReflectionTestUtils.setField(existing, "version", 3L);
+        UpdateUserRequest stale = new UpdateUserRequest(
+                "stale-write@example.com", UserRole.MUSICIAN, false, null, false, 2L);
+
+        assertThatThrownBy(() -> userService.edit(actor, 25L, stale))
+                .isInstanceOf(ConcurrentUserModificationException.class);
+
+        assertThat(existing.getEmail()).isEqualTo("current-version@example.com");
+        verify(userAccountRepository, never()).saveAndFlush(existing);
+        verifyNoInteractions(auditService);
+    }
+
+    @Test
+    void demotingAnAdminRevokesAllPermissionGrantsInTheSameMutation() {
+        UserAccount actor = adminActor();
+        UserAccount existing = new UserAccount("demote-cleanly@example.com", UserRole.ADMIN, UserStatus.ACTIVE, NOW);
+        prepareMutation(actor, 26L, existing);
+
+        userService.edit(actor, 26L, updateRequest("demote-cleanly@example.com", UserRole.MUSICIAN));
+
+        verify(adminPermissionRepository).deleteByAdmin(existing);
+        assertThat(existing.getRole()).isEqualTo(UserRole.MUSICIAN);
+    }
+
+    @Test
+    void promotingAMusicianWithDependenciesReturnsADetailedConflictWithoutChangingTheRole() {
+        UserAccount actor = adminActor();
+        UserAccount existing = new UserAccount("dependent@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, NOW);
+        prepareMutation(actor, 27L, existing);
+        when(musicianGroupRepository.countByMusician(existing)).thenReturn(2L);
+        when(eventMusicianAccessRepository.countByMusician(existing)).thenReturn(1L);
+        when(sheetMusicianAccessRepository.countByMusician(existing)).thenReturn(3L);
+
+        assertThatThrownBy(() -> userService.edit(
+                actor, 27L, updateRequest("dependent@example.com", UserRole.ADMIN)))
+                .isInstanceOf(UserRoleTransitionConflictException.class)
+                .hasMessageContaining("groupMemberships=2")
+                .hasMessageContaining("eventGrants=1")
+                .hasMessageContaining("sheetMusicGrants=3");
+
+        assertThat(existing.getRole()).isEqualTo(UserRole.MUSICIAN);
+        verify(userAccountRepository, never()).saveAndFlush(existing);
     }
 
     // ---- get()/list() ----
