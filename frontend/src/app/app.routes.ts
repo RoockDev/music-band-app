@@ -149,6 +149,15 @@ export const routes: Routes = [
           ),
       },
       {
+        path: 'recuperar',
+        title: 'Recuperar contraseña',
+        canActivate: [guestGuard],
+        loadComponent: () =>
+          import('./features/auth/request-password-reset/request-password-reset-page').then(
+            (module) => module.RequestPasswordResetPage,
+          ),
+      },
+      {
         path: '**',
         title: 'Página no encontrada',
         loadComponent: () =>

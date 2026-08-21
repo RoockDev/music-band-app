@@ -56,4 +56,14 @@ describe('AuthService', () => {
 
     expect(service.session()).toBeNull();
   });
+
+  it('bootstraps CSRF before requesting a password-reset email', () => {
+    service.requestPasswordReset({ email: 'music@example.com' }).subscribe();
+
+    http.expectOne('/api/auth/csrf').flush('');
+    const request = http.expectOne('/api/auth/password-reset/request');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.body).toEqual({ email: 'music@example.com' });
+    request.flush(null, { status: 202, statusText: 'Accepted' });
+  });
 });

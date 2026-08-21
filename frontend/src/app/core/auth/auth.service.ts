@@ -2,7 +2,12 @@ import { HttpClient } from '@angular/common/http';
 import { inject, Injectable, signal } from '@angular/core';
 import { catchError, finalize, Observable, of, shareReplay, switchMap, tap } from 'rxjs';
 import { CsrfService } from '../http/csrf.service';
-import { CurrentUser, LoginCredentials, PasswordCompletion } from './auth.models';
+import {
+  CurrentUser,
+  LoginCredentials,
+  PasswordCompletion,
+  PasswordResetRequest,
+} from './auth.models';
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
@@ -55,6 +60,12 @@ export class AuthService {
   completePasswordReset(request: PasswordCompletion): Observable<void> {
     return this.csrf.ensureToken().pipe(
       switchMap(() => this.http.post<void>('/api/auth/password-reset/complete', request)),
+    );
+  }
+
+  requestPasswordReset(request: PasswordResetRequest): Observable<void> {
+    return this.csrf.ensureToken().pipe(
+      switchMap(() => this.http.post<void>('/api/auth/password-reset/request', request)),
     );
   }
 }

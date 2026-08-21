@@ -16,6 +16,10 @@ export interface PasswordCompletion {
   newPassword: string;
 }
 
+export interface PasswordResetRequest {
+  email: string;
+}
+
 export function landingPath(role: UserRole): string {
   return role === 'ADMIN' ? '/administracion' : '/musico';
 }
