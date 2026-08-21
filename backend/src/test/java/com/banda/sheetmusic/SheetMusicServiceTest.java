@@ -276,6 +276,34 @@ class SheetMusicServiceTest {
     }
 
     @Test
+    void listManagedRequiresPermissionAndReturnsEveryActiveUploadWithoutApplyingMusicianScope() {
+        UserAccount actor = adminActor();
+        SheetMusic groupScoped = persistedSheetMusic(43L, false);
+        SheetMusic musicianScoped = persistedSheetMusic(44L, false);
+        SheetMusic inactive = persistedSheetMusic(45L, true);
+        org.springframework.test.util.ReflectionTestUtils.setField(inactive, "active", false);
+        when(sheetMusicRepository.findByActiveTrue()).thenReturn(List.of(groupScoped, musicianScoped, inactive));
+
+        List<SheetMusic> result = sheetMusicService.listManaged(actor);
+
+        verify(permissionService).requirePermission(actor, Permission.MANAGE_SHEET_MUSIC);
+        verifyNoInteractions(accessService);
+        assertThat(result).containsExactly(groupScoped, musicianScoped);
+    }
+
+    @Test
+    void listManagedChecksPermissionBeforeReadingTheCatalog() {
+        UserAccount actor = adminActor();
+        doThrow(new PermissionDeniedException(Permission.MANAGE_SHEET_MUSIC))
+                .when(permissionService).requirePermission(actor, Permission.MANAGE_SHEET_MUSIC);
+
+        assertThatThrownBy(() -> sheetMusicService.listManaged(actor))
+                .isInstanceOf(PermissionDeniedException.class);
+
+        verifyNoInteractions(sheetMusicRepository);
+    }
+
+    @Test
     void downloadReturnsBytesContentTypeAndFilenameWhenAuthorizedAndWritesAnAuditRecord() throws IOException {
         UserAccount actor = new UserAccount("musician@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, NOW);
         SheetMusic piece = persistedSheetMusic(50L, true);

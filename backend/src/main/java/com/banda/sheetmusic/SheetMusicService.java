@@ -29,6 +29,9 @@ import java.util.Set;
  * <p>{@code actor} is trusted as-is: callers (currently {@link SheetMusicController}) MUST
  * resolve it from the authenticated principal, never from client-supplied request data —
  * the same contract every other gated service in this codebase documents.
+ * The musician-facing {@link #list} remains access-scoped; {@link #listManaged} is a separate
+ * {@code MANAGE_SHEET_MUSIC}-gated catalog so admins can manage uploads that are intentionally
+ * scoped to other users or groups.
  */
 @Service
 @Transactional
@@ -134,6 +137,14 @@ public class SheetMusicService {
         return sheetMusicRepository.findByActiveTrue().stream()
                 .filter(SheetMusic::isActive)
                 .filter(sheetMusic -> accessService.canAccess(actor, sheetMusic))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<SheetMusic> listManaged(UserAccount actor) {
+        permissionService.requirePermission(actor, Permission.MANAGE_SHEET_MUSIC);
+        return sheetMusicRepository.findByActiveTrue().stream()
+                .filter(SheetMusic::isActive)
                 .toList();
     }
 

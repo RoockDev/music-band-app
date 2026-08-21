@@ -66,6 +66,14 @@ public class SheetMusicController {
                 .toList();
     }
 
+    /** Complete upload catalog for admins holding {@code MANAGE_SHEET_MUSIC}. */
+    @GetMapping("/admin")
+    public List<SheetMusicResponse> listManaged(@AuthenticationPrincipal UserAccount actor) {
+        return sheetMusicService.listManaged(actor).stream()
+                .map(SheetMusicResponse::from)
+                .toList();
+    }
+
     /**
      * Section 5's IDOR-safe download endpoint (task 6.3, the core deliverable of this PR):
      * {@link SheetMusicService#download} throws the exact same 404
