@@ -44,7 +44,7 @@ export interface CourseAnnouncement {
   title: string;
   description: string | null;
   startDate: string;
-  endDate: string;
+  endDate: string | null;
   price: number;
   instrument: string | null;
   minimumAge: number;

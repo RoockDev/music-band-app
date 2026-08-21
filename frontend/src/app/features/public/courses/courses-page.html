@@ -20,7 +20,15 @@
         <h2>{{ item.title }}</h2>
         @if (item.description) { <p class="description">{{ item.description }}</p> }
         <dl>
-          <div><dt>Fechas</dt><dd>{{ item.startDate | date: 'd MMM' }} — {{ item.endDate | date: 'd MMM yyyy' }}</dd></div>
+          <div>
+            <dt>Fechas</dt>
+            <dd>
+              {{ item.startDate | date: 'd MMM' }}
+              @if (item.endDate) {
+                — {{ item.endDate | date: 'd MMM yyyy' }}
+              }
+            </dd>
+          </div>
           <div><dt>Instrumento</dt><dd>{{ item.instrument || 'Formación general' }}</dd></div>
           <div><dt>Edad mínima</dt><dd>{{ item.minimumAge }} años</dd></div>
           <div><dt>Precio</dt><dd>{{ item.price | number: '1.2-2' }} €</dd></div>

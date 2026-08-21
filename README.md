@@ -1,42 +1,77 @@
 # Village Band & Music School App
 
-Web application for a village music band and its associated music school.
+A full-stack web application for a music band and its associated school. It provides an editorial public website, role-based authentication, a musician workspace for events and sheet music, and an administration area for users, groups, calendars, content, files, and audit history.
 
-- **Backend**: Java 21 + Spring Boot (REST API, Spring Security, JPA/PostgreSQL). Lives in `backend/`.
-- **Frontend**: Angular SPA (not started yet). Will live in `frontend/`.
-- Public site (band/school info, news, concerts, contact) plus a private, role-scoped area for musicians and administrators (sheet music, internal calendar, admin panel).
+## Repository structure
 
-Status: backend scaffolding done (empty skeleton + one smoke test), no feature logic yet.
+- `backend/` — Java 21 and Spring Boot REST API with security, PostgreSQL persistence, mail notifications, file storage, and Testcontainers integration tests.
+- `frontend/` — Angular SPA with public pages and guarded `MUSICIAN` and `ADMIN` areas. Development `/api` requests use `frontend/proxy.conf.json`.
+- `docker-compose.yml` — local PostgreSQL and Mailpit services.
+- `postman/` — collection for manual API exploration.
 
-## Running the backend locally
+## Requirements
 
-`JWT_SECRET`, `MAIL_HOST`, `MAIL_PORT`, and `MAIL_FROM` are all **required** — none has a
-built-in default, so the app fails fast at startup if any is unset. (`MAIL_HOST`/`MAIL_PORT`/
-`MAIL_FROM` used to have local-dev-friendly defaults, but that meant a prod deployment that
-forgot to set them would boot fine and silently blackhole every admin contact-form
-notification against an unreachable `localhost:1025` — see `application.yml` for the full
-rationale.) Generate/set them before running:
+- Java 21 and Maven
+- Docker with Compose
+- Node.js supported by the locked Angular CLI: `^22.22.3`, `^24.15.0`, or `>=26`
+- npm 8+
 
+## Run locally
+
+Run all commands from the repository root.
+
+### 1. Start PostgreSQL and Mailpit
+
+```bash
+docker compose up -d postgres mailpit
 ```
-export JWT_SECRET=$(openssl rand -base64 32)
+
+PostgreSQL listens on `localhost:5432`. Mailpit accepts SMTP on `localhost:1025` and exposes its inbox at <http://localhost:8025>.
+
+### 2. Start the backend
+
+The backend fails fast when JWT and mail settings are missing. Plain HTTP development also requires a non-secure auth cookie.
+
+```bash
+mkdir -p /tmp/music-band-app-files
+export JWT_SECRET="$(openssl rand -base64 32)"
 export MAIL_HOST=localhost
 export MAIL_PORT=1025
 export MAIL_FROM=no-reply@banda.local
-docker compose up postgres mailpit
+export APP_SECURITY_COOKIE_SECURE=false
+export APP_FILE_STORAGE_BASE_DIR=/tmp/music-band-app-files
 mvn -f backend/pom.xml spring-boot:run
 ```
 
-The API starts on `http://localhost:8080`. Server port, datasource, and mail settings are read
-from env vars (`SERVER_PORT`, `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, `MAIL_HOST`, `MAIL_PORT`,
-`MAIL_USERNAME`, `MAIL_PASSWORD`) — see `backend/src/main/resources/application.yml` for the
-full list and local dev defaults.
+The API starts at <http://localhost:8080>. Database defaults match `docker-compose.yml`; additional overrides are documented in `backend/src/main/resources/application.yml`.
 
-The JWT access-token cookie is `Secure` by default (requires HTTPS). If you're running the
-API over plain HTTP locally (no TLS reverse proxy), set `APP_SECURITY_COOKIE_SECURE=false` —
-otherwise the browser will silently drop the cookie and login will appear to do nothing.
+### 3. Start the frontend
 
-Run backend tests (uses Testcontainers, needs Docker running):
+In another terminal:
 
+```bash
+npm --prefix frontend ci
+npm --prefix frontend start
 ```
+
+Open <http://localhost:4200>. Angular proxies `/api` requests to the backend, preserving the same-origin cookie flow used by authentication and CSRF protection.
+
+## Verification
+
+```bash
+# Frontend unit tests and production build
+npm --prefix frontend test -- --watch=false
+npm --prefix frontend run build
+
+# Backend compilation without tests
+mvn -f backend/pom.xml -DskipTests compile
+
+# Complete backend test suite
 mvn -f backend/pom.xml test
 ```
+
+The complete backend suite uses Testcontainers and therefore requires a running Docker daemon.
+
+## Branding
+
+Installation-specific name, contact details, colors, social links, and asset paths live in `frontend/src/app/core/config/brand.config.ts`. Replace the corresponding SVG assets in `frontend/public/brand/` when adapting the application for another organization.
