@@ -12,11 +12,18 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate
     open-in-view: false
     properties:
       hibernate:
         format_sql: true
+
+  flyway:
+    validate-on-migrate: true
+    # Existing databases may opt in once, only after their schema has been verified to
+    # match V1 exactly. New/empty databases and normal startups must keep this false.
+    baseline-on-migrate: ${FLYWAY_BASELINE_ON_MIGRATE:false}
+    baseline-version: 1
 
   mail:
     # REQUIRED, no default -- see app.jwt.secret's comment below for the established

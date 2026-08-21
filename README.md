@@ -45,6 +45,25 @@ mvn -f backend/pom.xml spring-boot:run
 
 The API starts at <http://localhost:8080>. Database defaults match `docker-compose.yml`; additional overrides are documented in `backend/src/main/resources/application.yml`.
 
+On a new, empty database, Flyway applies the versioned migrations before Hibernate validates
+the resulting schema. Hibernate never updates the schema at runtime.
+
+#### Adopt an existing database once
+
+Flyway intentionally refuses a non-empty database without migration history. Before adopting
+one, back it up and compare its tables, columns, types, nullability, keys, checks, and indexes
+with `backend/src/main/resources/db/migration/V1__initial_schema.sql`. Only if they already
+match, start the backend once with:
+
+```bash
+FLYWAY_BASELINE_ON_MIGRATE=true mvn -f backend/pom.xml spring-boot:run
+```
+
+Stop that process after a successful startup, unset the variable, and use normal startup from
+then on. Baseline records V1 as already applied; it does **not** execute V1 or verify/fix the
+existing schema. Using it on a divergent schema can hide missing constraints or indexes until
+a later migration or runtime operation fails.
+
 ### 3. Start the frontend
 
 In another terminal:

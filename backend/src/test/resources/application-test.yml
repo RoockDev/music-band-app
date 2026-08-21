@@ -22,6 +22,11 @@ spring:
     hibernate:
       ddl-auto: create-drop
 
+  # Existing integration tests deliberately let Hibernate create/drop their schema.
+  # Flyway is enabled explicitly only by FlywaySchemaIntegrationTest.
+  flyway:
+    enabled: false
+
   mail:
     host: localhost
     port: 1025
