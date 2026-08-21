@@ -1,5 +1,17 @@
 export type UserRole = 'ADMIN' | 'MUSICIAN';
 export type UserStatus = 'PENDING' | 'ACTIVE' | 'DEACTIVATED';
+export type AdminPermission =
+  | 'MANAGE_USERS'
+  | 'MANAGE_ADMIN_ROLES'
+  | 'MANAGE_GROUPS'
+  | 'MANAGE_SHEET_MUSIC'
+  | 'MANAGE_EVENTS'
+  | 'MANAGE_CONTENT';
+
+export interface AdminPermissions {
+  userId: number;
+  permissions: AdminPermission[];
+}
 
 export interface UserAccount {
   id: number;

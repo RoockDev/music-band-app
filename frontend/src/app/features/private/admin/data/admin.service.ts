@@ -11,6 +11,8 @@ import {
 } from '../../../public/data/public-content.models';
 import { InternalEvent, SheetMusic } from '../../data/private-content.models';
 import {
+  AdminPermission,
+  AdminPermissions,
   AuditLog,
   Collection,
   CourseMutation,
@@ -50,6 +52,30 @@ export class AdminService {
     return this.csrf
       .ensureToken()
       .pipe(switchMap(() => this.http.post<void>(`/api/users/${id}/deactivate`, null)));
+  }
+
+  getAdminPermissions(id: number): Observable<AdminPermissions> {
+    return this.http.get<AdminPermissions>(`/api/users/${id}/permissions`);
+  }
+
+  grantAdminPermission(id: number, permission: AdminPermission): Observable<AdminPermissions> {
+    return this.csrf
+      .ensureToken()
+      .pipe(
+        switchMap(() =>
+          this.http.put<AdminPermissions>(`/api/users/${id}/permissions/${permission}`, null),
+        ),
+      );
+  }
+
+  revokeAdminPermission(id: number, permission: AdminPermission): Observable<AdminPermissions> {
+    return this.csrf
+      .ensureToken()
+      .pipe(
+        switchMap(() =>
+          this.http.delete<AdminPermissions>(`/api/users/${id}/permissions/${permission}`),
+        ),
+      );
   }
 
   getGroups(): Observable<Group[]> {

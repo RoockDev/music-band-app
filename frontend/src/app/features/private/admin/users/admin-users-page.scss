@@ -108,6 +108,57 @@ form {
   padding-block: 2rem;
 }
 
+.permission-panel {
+  background: var(--color-paper-deep);
+  border: 1px solid var(--color-line);
+  grid-column: 1 / -1;
+  padding: clamp(1rem, 3vw, 2rem);
+}
+
+.permission-heading,
+.permission-list li {
+  align-items: center;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+}
+
+.permission-heading h3 {
+  font-size: clamp(1.2rem, 3vw, 2rem);
+  margin: 0.25rem 0;
+  overflow-wrap: anywhere;
+}
+
+.permission-note {
+  color: var(--color-muted);
+  line-height: 1.6;
+}
+
+.permission-list {
+  list-style: none;
+  margin: 1rem 0;
+  padding: 0;
+}
+
+.permission-list li {
+  border-top: 1px solid var(--color-line);
+  padding-block: 1rem;
+}
+
+.permission-list li > div {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.permission-list span,
+.permission-panel small {
+  color: var(--color-muted);
+}
+
+.permission-toggle {
+  min-width: 7.5rem;
+}
+
 .admin-list h2 {
   font-family: var(--font-sans);
   font-size: clamp(1.2rem, 3vw, 2rem);
@@ -153,5 +204,10 @@ form {
   .admin-form,
   .admin-list li {
     grid-template-columns: 1fr;
+  }
+
+  .permission-list li {
+    align-items: stretch;
+    flex-direction: column;
   }
 }

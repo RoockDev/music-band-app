@@ -25,6 +25,26 @@ describe('AdminService', () => {
     request.flush([]);
   });
 
+  it('reads and mutates typed admin permissions with CSRF on writes', () => {
+    service.getAdminPermissions(7).subscribe();
+    const getPermissions = http.expectOne('/api/users/7/permissions');
+    expect(getPermissions.request.method).toBe('GET');
+    getPermissions.flush({ userId: 7, permissions: ['MANAGE_USERS'] });
+
+    service.grantAdminPermission(7, 'MANAGE_EVENTS').subscribe();
+    http.expectOne('/api/auth/csrf').flush('');
+    const grant = http.expectOne('/api/users/7/permissions/MANAGE_EVENTS');
+    expect(grant.request.method).toBe('PUT');
+    expect(grant.request.body).toBeNull();
+    grant.flush({ userId: 7, permissions: ['MANAGE_EVENTS', 'MANAGE_USERS'] });
+
+    service.revokeAdminPermission(7, 'MANAGE_EVENTS').subscribe();
+    http.expectOne('/api/auth/csrf').flush('');
+    const revoke = http.expectOne('/api/users/7/permissions/MANAGE_EVENTS');
+    expect(revoke.request.method).toBe('DELETE');
+    revoke.flush({ userId: 7, permissions: ['MANAGE_USERS'] });
+  });
+
   it('bootstraps CSRF before creating a user and preserves the complete payload', () => {
     const payload = {
       email: 'musician@example.com',
@@ -195,6 +215,16 @@ describe('adminErrorMessage', () => {
 
     expect(adminErrorMessage(error, 'usuarios')).toBe(
       'Tu cuenta no tiene el permiso necesario para gestionar usuarios.',
+    );
+  });
+
+  it('distinguishes missing targets from state conflicts', () => {
+    const missing = new HttpErrorResponse({ status: 404, statusText: 'Not Found' });
+    const conflict = new HttpErrorResponse({ status: 409, statusText: 'Conflict' });
+
+    expect(adminErrorMessage(missing, 'permisos administrativos')).toContain('ya no existe');
+    expect(adminErrorMessage(conflict, 'permisos administrativos')).toContain(
+      'entra en conflicto con el estado actual',
     );
   });
 });

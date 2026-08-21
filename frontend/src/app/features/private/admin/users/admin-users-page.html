@@ -112,6 +112,17 @@
           >
             Editar
           </button>
+          @if (user.role === 'ADMIN') {
+            <button
+              class="text-button"
+              type="button"
+              (click)="openPermissions(user)"
+              [attr.data-permissions-user-id]="user.id"
+              [disabled]="actionId() !== null"
+            >
+              Gestionar permisos
+            </button>
+          }
           @if (user.status !== 'DEACTIVATED') {
             <button
               class="text-button danger"
@@ -123,6 +134,60 @@
             </button>
           }
         </div>
+        @if (user.role === 'ADMIN' && permissionUserId() === user.id) {
+          <section class="permission-panel" aria-labelledby="permission-title-{{ user.id }}">
+            <div class="permission-heading">
+              <div>
+                <p class="section-index">Permisos administrativos</p>
+                <h3 id="permission-title-{{ user.id }}">Acceso de {{ user.email }}</h3>
+              </div>
+              <button class="text-button" type="button" (click)="closePermissions()">Cerrar</button>
+            </div>
+            <p class="permission-note">
+              Ser administrador no concede permisos automáticamente. Cada cambio requiere
+              confirmación.
+            </p>
+            @if (permissionsLoading()) {
+              <p role="status">Consultando permisos…</p>
+            } @else {
+              @if (permissionError()) {
+                <p class="form-message error" role="alert">{{ permissionError() }}</p>
+              }
+              <ul class="permission-list">
+                @for (option of permissionOptions; track option.value) {
+                  <li>
+                    <div>
+                      <strong>{{ option.label }}</strong>
+                      <span>{{ option.description }}</span>
+                    </div>
+                    <button
+                      class="button secondary permission-toggle"
+                      type="button"
+                      (click)="changePermission(user, option.value)"
+                      [attr.data-permission]="option.value"
+                      [disabled]="
+                        permissionAction() !== null ||
+                        (user.id === session()?.id && option.value === 'MANAGE_ADMIN_ROLES')
+                      "
+                    >
+                      @if (permissionAction() === option.value) {
+                        Guardando…
+                      } @else {
+                        {{ hasPermission(option.value) ? 'Desactivar' : 'Activar' }}
+                      }
+                    </button>
+                  </li>
+                }
+              </ul>
+              @if (user.id === session()?.id) {
+                <small>No puedes retirar de tu propia cuenta la gestión de administradores.</small>
+              }
+              @if (permissionFeedback()) {
+                <p class="form-message success" role="status">{{ permissionFeedback() }}</p>
+              }
+            }
+          </section>
+        }
       </li>
     }
   </ul>
