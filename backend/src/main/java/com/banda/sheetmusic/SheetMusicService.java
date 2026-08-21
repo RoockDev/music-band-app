@@ -246,7 +246,7 @@ public class SheetMusicService {
      * constant-time access checks; not worth the added complexity given JWT-cookie auth
      * already gates entry to an authenticated session for this app's threat model.
      */
-    @Transactional(readOnly = true)
+    @Transactional
     public DownloadResult download(UserAccount actor, Long sheetMusicId) {
         SheetMusic sheetMusic = sheetMusicRepository.findById(sheetMusicId)
                 .filter(SheetMusic::isActive)
