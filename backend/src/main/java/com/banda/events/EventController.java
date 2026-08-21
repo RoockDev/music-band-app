@@ -35,6 +35,8 @@ import java.util.Map;
  * comment on {@code /api/events/**}, mirroring {@code /api/sheet-music/**}'s identical
  * "authenticated, service-layer-authorized" shape). {@link com.banda.security.PermissionDeniedException}
  * is handled globally by {@code GlobalExceptionHandler}.
+ * {@link #listManaged} is the separate permission-gated admin catalog so management does not
+ * weaken those musician-facing scope rules.
  *
  * <p>No delete endpoint: cancellation ({@link #cancel}) is the spec's own non-destructive
  * lifecycle end-state for an event — see {@link EventService}'s own Javadoc.
@@ -61,6 +63,12 @@ public class EventController {
     @GetMapping
     public List<EventResponse> list(@AuthenticationPrincipal UserAccount actor) {
         return eventService.list(actor).stream().map(EventResponse::from).toList();
+    }
+
+    /** Complete management catalog for admins holding {@code MANAGE_EVENTS}. */
+    @GetMapping("/admin")
+    public List<EventResponse> listManaged(@AuthenticationPrincipal UserAccount actor) {
+        return eventService.listManaged(actor).stream().map(EventResponse::from).toList();
     }
 
     /** IDOR-safe single fetch: {@link EventService#get} throws the exact same 404

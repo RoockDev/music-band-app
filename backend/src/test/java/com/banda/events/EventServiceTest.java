@@ -184,6 +184,32 @@ class EventServiceTest {
     }
 
     @Test
+    void listManagedRequiresPermissionAndReturnsAllEventsWithoutApplyingMusicianScope() {
+        UserAccount actor = adminActor();
+        Event groupScoped = persistedEvent(4L, false, false);
+        Event musicianScoped = persistedEvent(5L, false, false);
+        when(eventRepository.findAll()).thenReturn(List.of(groupScoped, musicianScoped));
+
+        List<Event> result = eventService.listManaged(actor);
+
+        verify(permissionService).requirePermission(actor, Permission.MANAGE_EVENTS);
+        verifyNoInteractions(accessService);
+        assertThat(result).containsExactly(groupScoped, musicianScoped);
+    }
+
+    @Test
+    void listManagedChecksPermissionBeforeReadingTheCatalog() {
+        UserAccount actor = adminActor();
+        doThrow(new PermissionDeniedException(Permission.MANAGE_EVENTS))
+                .when(permissionService).requirePermission(actor, Permission.MANAGE_EVENTS);
+
+        assertThatThrownBy(() -> eventService.listManaged(actor))
+                .isInstanceOf(PermissionDeniedException.class);
+
+        verifyNoInteractions(eventRepository);
+    }
+
+    @Test
     void getReturnsTheEventWhenAccessible() {
         UserAccount actor = musicianActor();
         Event event = persistedEvent(10L, false, true);

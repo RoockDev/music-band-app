@@ -38,6 +38,11 @@ import java.util.List;
  * query — the same acceptable-at-this-scale tradeoff {@code SheetMusicAccessService} already
  * made (a handful of events/pieces, not a paginated firehose).
  *
+ * <p><b>{@link #listManaged} — the admin management catalog:</b> an admin holding
+ * {@code MANAGE_EVENTS} must be able to find events created for groups or musicians even
+ * when the admin is not personally in that access scope. Keeping this as a separate,
+ * permission-gated read avoids weakening the musician calendar's IDOR-safe scope rules.
+ *
  * <p><b>Cancellation as a non-destructive terminal state (Sec.7 "Cancellation" scenario):
  * </b> {@link #cancel} transitions {@link Event#getStatus()} to {@link EventStatus#CANCELLED}
  * in place — it never deletes the row, so {@link #list}/{@link #get} keep returning it to
@@ -96,6 +101,12 @@ public class EventService {
         return eventRepository.findAll().stream()
                 .filter(event -> accessService.canAccess(actor, event))
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<Event> listManaged(UserAccount actor) {
+        permissionService.requirePermission(actor, Permission.MANAGE_EVENTS);
+        return eventRepository.findAll();
     }
 
     @Transactional(readOnly = true)
