@@ -605,7 +605,8 @@ class UserControllerIntegrationTest extends IntegrationTestBase {
                         .contentType("application/json")
                         .content("{\"email\":\"losing-user-write@example.com\",\"role\":\"MUSICIAN\","
                                 + "\"minor\":false,\"consentOnFile\":false,\"version\":" + staleVersion + "}"))
-                .andExpect(status().isConflict());
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CONCURRENT_MODIFICATION"));
 
         assertThat(userAccountRepository.findById(target.getId()).orElseThrow().getEmail())
                 .isEqualTo("winning-user-write@example.com");

@@ -80,4 +80,43 @@ describe('AdminArchivePage collection management', () => {
     expect(button.disabled).toBe(true);
     expect(fixture.nativeElement.textContent).toContain('1 partituras');
   });
+
+  it('reloads the current collection and score catalog after a stale edit', () => {
+    const fixture = TestBed.createComponent(AdminArchivePage);
+    fixture.detectChanges();
+    const stale = collection({ version: 2 });
+    http.expectOne('/api/collections').flush([stale]);
+    http.expectOne('/api/sheet-music/admin').flush([]);
+
+    const component = fixture.componentInstance as any;
+    component.editCollection(stale);
+    component.collectionForm.controls.name.setValue('Attempted name');
+    component.saveCollection();
+    http.expectOne('/api/auth/csrf').flush('');
+    http.expectOne('/api/collections/2').flush(
+      { code: 'CONCURRENT_MODIFICATION', error: 'conflict' },
+      { status: 409, statusText: 'Conflict' },
+    );
+
+    const latest = collection({ name: 'Latest name', version: 3 });
+    http.expectOne('/api/collections').flush([latest]);
+    http.expectOne('/api/sheet-music/admin').flush([]);
+    fixture.detectChanges();
+
+    expect(component.collectionForm.controls.name.value).toBe('Latest name');
+    expect(component.editingCollection().version).toBe(3);
+    expect(fixture.nativeElement.textContent).toContain('Se han recargado');
+  });
 });
+
+function collection(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 2,
+    name: 'Marches',
+    description: null,
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
+    version: 0,
+    ...overrides,
+  };
+}

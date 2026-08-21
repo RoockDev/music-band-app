@@ -92,7 +92,8 @@ class PublicContentCrudIntegrationTest extends IntegrationTestBase {
                         .header("X-XSRF-TOKEN", csrf.getValue())
                         .contentType("application/json")
                         .content("{\"title\":\"Stale\",\"body\":\"Body\",\"version\":0}"))
-                .andExpect(status().isConflict());
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CONCURRENT_MODIFICATION"));
 
         deleteVersioned("/api/news/" + post.getId(), 1).andExpect(status().isNoContent());
         deleteVersioned("/api/news/" + post.getId(), 1).andExpect(status().isNotFound());

@@ -630,7 +630,8 @@ class EventControllerIntegrationTest extends IntegrationTestBase {
                         .header("X-XSRF-TOKEN", csrf.getValue())
                         .contentType("application/json")
                         .content(payloadPrefix + (event.getVersion() + 1) + "}"))
-                .andExpect(status().isConflict());
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CONCURRENT_MODIFICATION"));
 
         mockMvc.perform(put("/api/events/" + event.getId())
                         .cookie(csrf, token)

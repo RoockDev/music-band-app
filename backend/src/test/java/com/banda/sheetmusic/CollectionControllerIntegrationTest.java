@@ -231,7 +231,8 @@ class CollectionControllerIntegrationTest extends IntegrationTestBase {
                         .header("X-XSRF-TOKEN", csrf.getValue())
                         .contentType("application/json")
                         .content("{\"name\":\"Stale\",\"version\":" + originalVersion + "}"))
-                .andExpect(status().isConflict());
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CONCURRENT_MODIFICATION"));
 
         Collection managed = collectionRepository.findById(collection.getId()).orElseThrow();
         SheetMusic score = sheetMusicRepository.saveAndFlush(new SheetMusic("Score", null, managed, "key-"

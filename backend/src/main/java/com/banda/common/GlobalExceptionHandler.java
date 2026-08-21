@@ -53,6 +53,8 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ConcurrentContentModificationException.class)
     public ResponseEntity<Map<String, String>> handleConcurrentContentModification(
             ConcurrentContentModificationException e) {
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", e.getMessage()));
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                "code", "CONCURRENT_MODIFICATION",
+                "error", e.getMessage()));
     }
 }

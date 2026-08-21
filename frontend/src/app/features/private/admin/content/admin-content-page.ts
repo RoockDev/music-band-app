@@ -10,7 +10,11 @@ import {
   VideoLink,
 } from '../../../public/data/public-content.models';
 import { CourseMutation } from '../data/admin.models';
-import { adminErrorMessage, AdminService } from '../data/admin.service';
+import {
+  adminErrorMessage,
+  AdminService,
+  isConcurrentModification,
+} from '../data/admin.service';
 
 type ContentKind = 'news' | 'video' | 'course' | 'album' | 'photo';
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
@@ -343,7 +347,7 @@ export class AdminContentPage implements OnInit {
     this.clearError(kind);
     request.pipe(finalize(() => this.saving.set(null))).subscribe({
       next: success,
-      error: (error: unknown) => this.setError(kind, adminErrorMessage(error, 'contenido público')),
+      error: (error: unknown) => this.handleContentError(kind, error),
     });
   }
 
@@ -359,6 +363,10 @@ export class AdminContentPage implements OnInit {
     request.pipe(finalize(() => this.saving.set(null))).subscribe({
       next: success,
       error: (error: unknown) => {
+        if (isConcurrentModification(error)) {
+          this.reloadAfterConflict(kind);
+          return;
+        }
         const message = adminErrorMessage(error, 'contenido público');
         this.setError(
           kind,
@@ -366,6 +374,62 @@ export class AdminContentPage implements OnInit {
         );
       },
     });
+  }
+
+  private handleContentError(kind: ContentKind, error: unknown): void {
+    if (isConcurrentModification(error)) {
+      this.reloadAfterConflict(kind);
+      return;
+    }
+    this.setError(kind, adminErrorMessage(error, 'contenido público'));
+  }
+
+  private reloadAfterConflict(kind: ContentKind): void {
+    const editingNewsId = this.editingNews()?.id;
+    const editingVideoId = this.editingVideo()?.id;
+    const editingCourseId = this.editingCourse()?.id;
+    const editingAlbumId = this.editingAlbum()?.id;
+    forkJoin({
+      news: this.admin.getManagedNews(),
+      videos: this.admin.getManagedVideos(),
+      courses: this.admin.getManagedCourses(),
+      albums: this.admin.getManagedAlbums(),
+    }).subscribe({
+      next: (content) => {
+        this.news.set(content.news);
+        this.videos.set(content.videos);
+        this.courses.set(content.courses);
+        this.albums.set(content.albums);
+        this.restoreEditor('news', editingNewsId, content.news, (item) => this.editNews(item));
+        this.restoreEditor('video', editingVideoId, content.videos, (item) => this.editVideo(item));
+        this.restoreEditor('course', editingCourseId, content.courses, (item) => this.editCourse(item));
+        this.restoreEditor('album', editingAlbumId, content.albums, (item) => this.editAlbum(item));
+        this.setError(kind, 'Otra persona modificó el contenido. Se han recargado los datos actuales.');
+      },
+      error: () =>
+        this.setError(
+          kind,
+          'Hay un conflicto de edición y no se ha podido recargar el contenido actual.',
+        ),
+    });
+  }
+
+  private restoreEditor<T extends { id: number }>(
+    kind: Exclude<ContentKind, 'photo'>,
+    editingId: number | undefined,
+    items: T[],
+    edit: (item: T) => void,
+  ): void {
+    if (editingId === undefined) return;
+    const latest = items.find((item) => item.id === editingId);
+    if (latest) {
+      edit(latest);
+      return;
+    }
+    if (kind === 'news') this.cancelNewsEdit();
+    if (kind === 'video') this.cancelVideoEdit();
+    if (kind === 'course') this.cancelCourseEdit();
+    if (kind === 'album') this.cancelAlbumEdit();
   }
 
   private setError(kind: ContentKind, message: string): void {

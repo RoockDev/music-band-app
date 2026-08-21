@@ -122,6 +122,8 @@ public class EventController {
 
     @ExceptionHandler(ConcurrentEventModificationException.class)
     public ResponseEntity<Map<String, String>> handleConcurrentModification(ConcurrentEventModificationException e) {
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", e.getMessage()));
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                "code", "CONCURRENT_MODIFICATION",
+                "error", e.getMessage()));
     }
 }

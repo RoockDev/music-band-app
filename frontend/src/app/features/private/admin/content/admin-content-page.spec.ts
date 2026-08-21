@@ -75,4 +75,48 @@ describe('AdminContentPage', () => {
     expect(button.disabled).toBe(true);
     expect(fixture.nativeElement.textContent).toContain('Elimina primero cada fotografía');
   });
+
+  it('reloads the current content and editor after a stale update', () => {
+    const fixture = TestBed.createComponent(AdminContentPage);
+    fixture.detectChanges();
+    const stale = newsPost({ version: 3 });
+    http.expectOne('/api/news').flush([stale]);
+    http.expectOne('/api/videos').flush([]);
+    http.expectOne('/api/courses').flush([]);
+    http.expectOne('/api/albums').flush([]);
+
+    const component = fixture.componentInstance as any;
+    component.editNews(stale);
+    component.newsForm.controls.title.setValue('Attempted title');
+    component.saveNews();
+    http.expectOne('/api/auth/csrf').flush('');
+    http.expectOne('/api/news/4').flush(
+      { code: 'CONCURRENT_MODIFICATION', error: 'conflict' },
+      { status: 409, statusText: 'Conflict' },
+    );
+
+    const latest = newsPost({ title: 'Latest title', version: 4 });
+    http.expectOne('/api/news').flush([latest]);
+    http.expectOne('/api/videos').flush([]);
+    http.expectOne('/api/courses').flush([]);
+    http.expectOne('/api/albums').flush([]);
+    fixture.detectChanges();
+
+    expect(component.newsForm.controls.title.value).toBe('Latest title');
+    expect(component.editingNews().version).toBe(4);
+    expect(fixture.nativeElement.textContent).toContain('Se han recargado');
+  });
 });
+
+function newsPost(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 4,
+    title: 'Original',
+    body: 'Body',
+    publishedAt: '2026-01-01T00:00:00Z',
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
+    version: 0,
+    ...overrides,
+  };
+}

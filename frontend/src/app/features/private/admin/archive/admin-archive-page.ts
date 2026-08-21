@@ -5,7 +5,11 @@ import { PageState } from '../../../../shared/page-state/page-state';
 import { SheetMusic } from '../../data/private-content.models';
 import { Collection, SheetMusicUpload } from '../data/admin.models';
 import { parseIdList } from '../data/admin-form.utils';
-import { adminErrorMessage, AdminService } from '../data/admin.service';
+import {
+  adminErrorMessage,
+  AdminService,
+  isConcurrentModification,
+} from '../data/admin.service';
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
 const ALLOWED_FILE_TYPES = ['application/pdf', 'image/png', 'image/jpeg'];
@@ -98,8 +102,7 @@ export class AdminArchivePage implements OnInit {
         this.cancelCollectionEdit();
         this.collectionNotice.set(editing ? 'Colección actualizada.' : 'Colección creada.');
       },
-      error: (error: unknown) =>
-        this.collectionError.set(adminErrorMessage(error, 'el archivo de partituras')),
+      error: (error: unknown) => this.handleCollectionError(error, editing?.id),
     });
   }
 
@@ -141,8 +144,7 @@ export class AdminArchivePage implements OnInit {
           if (this.editingCollection()?.id === collection.id) this.cancelCollectionEdit();
           this.collectionNotice.set('Colección eliminada.');
         },
-        error: (error: unknown) =>
-          this.collectionError.set(adminErrorMessage(error, 'el archivo de partituras')),
+        error: (error: unknown) => this.handleCollectionError(error, collection.id),
       });
   }
 
@@ -211,6 +213,38 @@ export class AdminArchivePage implements OnInit {
   protected collectionName(id: number): string {
     return this.collections().find((item) => item.id === id)?.name ?? `Colección ${id}`;
   }
+
+  private handleCollectionError(error: unknown, collectionId?: number): void {
+    if (!isConcurrentModification(error)) {
+      this.collectionError.set(adminErrorMessage(error, 'el archivo de partituras'));
+      return;
+    }
+
+    forkJoin({
+      collections: this.admin.getCollections(),
+      scores: this.admin.getManagedSheetMusic(),
+    }).subscribe({
+      next: ({ collections, scores }) => {
+        const sorted = this.sortCollections(collections);
+        this.collections.set(sorted);
+        this.scores.set(this.sortScores(scores));
+        const latest = sorted.find((item) => item.id === collectionId);
+        if (latest && this.editingCollection()?.id === collectionId) {
+          this.editCollection(latest);
+        } else if (!latest && this.editingCollection()?.id === collectionId) {
+          this.cancelCollectionEdit();
+        }
+        this.collectionError.set(
+          'Otra persona modificó la colección. Se han recargado los datos actuales.',
+        );
+      },
+      error: () =>
+        this.collectionError.set(
+          'Hay un conflicto de edición y no se ha podido recargar el archivo actual.',
+        ),
+    });
+  }
+
   private sortCollections(items: Collection[]): Collection[] {
     return [...items].sort((a, b) => a.name.localeCompare(b.name));
   }

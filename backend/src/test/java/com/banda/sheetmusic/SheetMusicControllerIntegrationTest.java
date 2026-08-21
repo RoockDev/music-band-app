@@ -287,7 +287,8 @@ class SheetMusicControllerIntegrationTest extends IntegrationTestBase {
                         .content("{\"title\":\"Stale overwrite\",\"collectionId\":"
                                 + destinationCollection.getId() + ",\"allScope\":true,\"groupIds\":[],"
                                 + "\"musicianIds\":[],\"version\":" + initialVersion + "}"))
-                .andExpect(status().isConflict());
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CONCURRENT_MODIFICATION"));
 
         mockMvc.perform(delete("/api/sheet-music/" + id)
                         .param("version", String.valueOf(initialVersion + 1))

@@ -187,6 +187,8 @@ public class SheetMusicController {
     @ExceptionHandler(ConcurrentSheetMusicModificationException.class)
     public ResponseEntity<Map<String, String>> handleConcurrentModification(
             ConcurrentSheetMusicModificationException e) {
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", e.getMessage()));
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                "code", "CONCURRENT_MODIFICATION",
+                "error", e.getMessage()));
     }
 }
