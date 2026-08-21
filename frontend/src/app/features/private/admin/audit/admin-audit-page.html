@@ -1,0 +1,63 @@
+<header class="admin-heading">
+  <div>
+    <p class="eyebrow">Administración</p>
+    <h1>Auditoría</h1>
+  </div>
+  <p>
+    Consulta la historia inmutable de una entidad concreta. El backend no expone un registro global.
+  </p>
+</header>
+<section class="audit-search" aria-labelledby="audit-search-title">
+  <div>
+    <p class="section-index">Búsqueda por entidad</p>
+    <h2 id="audit-search-title">Localizar actividad</h2>
+  </div>
+  <form [formGroup]="auditForm" (ngSubmit)="search()">
+    <div class="field">
+      <label for="entity-type">Tipo</label
+      ><select id="entity-type" formControlName="entityType">
+        <option value="UserAccount">Usuario</option>
+        <option value="Group">Grupo</option>
+        <option value="Event">Evento</option>
+        <option value="SheetMusic">Partitura</option>
+        <option value="Collection">Colección</option>
+        <option value="NewsPost">Noticia</option>
+        <option value="VideoLink">Vídeo</option>
+        <option value="CourseAnnouncement">Curso</option>
+        <option value="Album">Álbum</option>
+        <option value="Photo">Fotografía</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="entity-id">ID de entidad</label
+      ><input id="entity-id" type="number" min="1" formControlName="entityId" />
+    </div>
+    <button class="button" type="submit" [disabled]="loading()">
+      {{ loading() ? 'Consultando…' : 'Consultar historial' }}
+    </button>
+  </form>
+</section>
+@if (error()) {
+  <p class="form-message error page-message" role="alert">{{ error() }}</p>
+} @else if (loading()) {
+  <app-page-state kind="loading" loadingText="Consultando el historial…" />
+} @else if (searched() && entries().length === 0) {
+  <app-page-state kind="empty" emptyText="Esta entidad no tiene actividad registrada." />
+} @else if (entries().length > 0) {
+  <ol class="audit-list">
+    @for (entry of entries(); track entry.id) {
+      <li>
+        <time [attr.datetime]="entry.timestamp">{{ entry.timestamp | date: 'medium' }}</time>
+        <div>
+          <p class="record-meta">
+            {{ entry.entityType }} {{ entry.entityId }} · Actor {{ entry.actorId }}
+          </p>
+          <h2>{{ entry.action }}</h2>
+          @if (entry.details) {
+            <p>{{ entry.details }}</p>
+          }
+        </div>
+      </li>
+    }
+  </ol>
+}

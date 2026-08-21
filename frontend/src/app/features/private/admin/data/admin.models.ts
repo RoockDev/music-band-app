@@ -75,3 +75,23 @@ export interface SheetMusicUpload {
   musicianIds: number[];
   file: File;
 }
+
+export interface AuditLog {
+  id: number;
+  actorId: number;
+  action: string;
+  entityType: string;
+  entityId: number;
+  timestamp: string;
+  details: string | null;
+}
+
+export interface CourseMutation {
+  title: string;
+  description: string | null;
+  startDate: string;
+  endDate: string | null;
+  price: number;
+  instrument: string;
+  minimumAge: number;
+}

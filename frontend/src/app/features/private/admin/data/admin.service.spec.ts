@@ -168,6 +168,25 @@ describe('AdminService', () => {
     expect(createCollection.request.method).toBe('POST');
     createCollection.flush({ id: 3 });
   });
+
+  it('uses create-only content endpoints and the entity audit history', () => {
+    service.createNews({ title: 'News', body: 'Body' }).subscribe();
+    http.expectOne('/api/auth/csrf').flush('');
+    const news = http.expectOne('/api/news');
+    expect(news.request.method).toBe('POST');
+    news.flush({ id: 1 });
+
+    service.createVideo({ title: 'Concert', url: 'https://example.com/video' }).subscribe();
+    http.expectOne('/api/auth/csrf').flush('');
+    const video = http.expectOne('/api/videos');
+    expect(video.request.method).toBe('POST');
+    video.flush({ id: 2 });
+
+    service.getAuditHistory('UserAccount', 7).subscribe();
+    const audit = http.expectOne('/api/audit/UserAccount/7');
+    expect(audit.request.method).toBe('GET');
+    audit.flush([]);
+  });
 });
 
 describe('adminErrorMessage', () => {

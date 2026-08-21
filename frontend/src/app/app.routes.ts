@@ -42,6 +42,14 @@ const adminArchive = () =>
     (module) => module.AdminArchivePage,
   );
 
+const adminContent = () =>
+  import('./features/private/admin/content/admin-content-page').then(
+    (module) => module.AdminContentPage,
+  );
+
+const adminAudit = () =>
+  import('./features/private/admin/audit/admin-audit-page').then((module) => module.AdminAuditPage);
+
 export const routes: Routes = [
   {
     path: 'musico',
@@ -66,6 +74,8 @@ export const routes: Routes = [
       { path: 'grupos', title: 'Gestión de grupos', loadComponent: adminGroups },
       { path: 'calendario', title: 'Gestión del calendario', loadComponent: adminCalendar },
       { path: 'archivo', title: 'Archivo de partituras', loadComponent: adminArchive },
+      { path: 'contenido', title: 'Gestión de contenido', loadComponent: adminContent },
+      { path: 'auditoria', title: 'Auditoría', loadComponent: adminAudit },
     ],
   },
   {

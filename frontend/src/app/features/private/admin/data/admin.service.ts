@@ -2,9 +2,18 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { Observable, switchMap } from 'rxjs';
 import { CsrfService } from '../../../../core/http/csrf.service';
+import {
+  Album,
+  CourseAnnouncement,
+  NewsPost,
+  Photo,
+  VideoLink,
+} from '../../../public/data/public-content.models';
 import { InternalEvent, SheetMusic } from '../../data/private-content.models';
 import {
+  AuditLog,
   Collection,
+  CourseMutation,
   CreateUserResult,
   EventCreateMutation,
   EventUpdateMutation,
@@ -138,6 +147,45 @@ export class AdminService {
     return this.csrf
       .ensureToken()
       .pipe(switchMap(() => this.http.post<SheetMusic>('/api/sheet-music', form)));
+  }
+
+  createNews(request: { title: string; body: string }): Observable<NewsPost> {
+    return this.csrf
+      .ensureToken()
+      .pipe(switchMap(() => this.http.post<NewsPost>('/api/news', request)));
+  }
+
+  createVideo(request: { title: string; url: string }): Observable<VideoLink> {
+    return this.csrf
+      .ensureToken()
+      .pipe(switchMap(() => this.http.post<VideoLink>('/api/videos', request)));
+  }
+
+  createCourse(request: CourseMutation): Observable<CourseAnnouncement> {
+    return this.csrf
+      .ensureToken()
+      .pipe(switchMap(() => this.http.post<CourseAnnouncement>('/api/courses', request)));
+  }
+
+  createAlbum(request: { name: string; description: string | null }): Observable<Album> {
+    return this.csrf
+      .ensureToken()
+      .pipe(switchMap(() => this.http.post<Album>('/api/albums', request)));
+  }
+
+  uploadPhoto(albumId: number, file: File, caption: string | null): Observable<Photo> {
+    const form = new FormData();
+    if (caption) {
+      form.append('caption', caption);
+    }
+    form.append('file', file);
+    return this.csrf
+      .ensureToken()
+      .pipe(switchMap(() => this.http.post<Photo>(`/api/albums/${albumId}/photos`, form)));
+  }
+
+  getAuditHistory(entityType: string, entityId: number): Observable<AuditLog[]> {
+    return this.http.get<AuditLog[]>(`/api/audit/${encodeURIComponent(entityType)}/${entityId}`);
   }
 }
 
