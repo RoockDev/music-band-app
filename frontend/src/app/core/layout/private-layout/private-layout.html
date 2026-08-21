@@ -15,6 +15,9 @@
       @if (session()?.role === 'MUSICIAN') {
         <a routerLink="/musico/agenda" routerLinkActive="active">Agenda</a>
         <a routerLink="/musico/biblioteca" routerLinkActive="active">Partituras</a>
+      } @else {
+        <a routerLink="/administracion/usuarios" routerLinkActive="active">Usuarios</a>
+        <a routerLink="/administracion/grupos" routerLinkActive="active">Grupos</a>
       }
       <a routerLink="/">Web pública</a>
     </nav>

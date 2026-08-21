@@ -1,0 +1,130 @@
+<header class="admin-heading">
+  <div>
+    <p class="eyebrow">Administración</p>
+    <h1>Grupos</h1>
+  </div>
+  <p>Organiza las agrupaciones y controla qué músicos forman parte de cada una.</p>
+</header>
+
+<section class="admin-form" aria-labelledby="group-form-title">
+  <div>
+    <p class="section-index">{{ editingId() === null ? 'Nuevo grupo' : 'Edición' }}</p>
+    <h2 id="group-form-title">
+      {{ editingId() === null ? 'Crear una agrupación' : 'Actualizar el grupo' }}
+    </h2>
+  </div>
+  <form [formGroup]="groupForm" (ngSubmit)="submit()">
+    <div class="field">
+      <label for="group-name">Nombre</label>
+      <input id="group-name" type="text" formControlName="name" />
+      @if (groupForm.controls.name.touched && groupForm.controls.name.invalid) {
+        <p class="field-error">El nombre es obligatorio.</p>
+      }
+    </div>
+    <div class="field">
+      <label for="group-description">Descripción</label>
+      <textarea id="group-description" formControlName="description"></textarea>
+    </div>
+    @if (formError()) {
+      <p class="form-message error" role="alert">{{ formError() }}</p>
+    }
+    <div class="form-actions">
+      <button class="button" type="submit" [disabled]="saving()">
+        {{ saving() ? 'Guardando…' : editingId() === null ? 'Crear grupo' : 'Guardar cambios' }}
+      </button>
+      @if (editingId() !== null) {
+        <button class="button secondary" type="button" (click)="resetForm()">Cancelar</button>
+      }
+    </div>
+  </form>
+</section>
+
+@if (actionError()) {
+  <p class="form-message error page-message" role="alert">{{ actionError() }}</p>
+}
+
+@if (loading()) {
+  <app-page-state kind="loading" loadingText="Consultando los grupos…" />
+} @else if (failed()) {
+  <app-page-state
+    kind="error"
+    errorText="No se pueden consultar los grupos. Comprueba que tu cuenta tenga permiso para gestionarlos."
+    (retry)="load()"
+  />
+} @else if (groups().length === 0) {
+  <app-page-state kind="empty" emptyText="Todavía no hay grupos creados." />
+} @else {
+  <ul class="admin-list">
+    @for (group of groups(); track group.id) {
+      <li>
+        <div>
+          <p class="record-meta">Grupo {{ group.id }}</p>
+          <h2>{{ group.name }}</h2>
+          <p>{{ group.description || 'Sin descripción' }}</p>
+        </div>
+        <div class="record-actions">
+          <button class="text-button" type="button" (click)="manageMembers(group)">Miembros</button>
+          <button class="text-button" type="button" (click)="edit(group)">Editar</button>
+          <button
+            class="text-button danger"
+            type="button"
+            (click)="remove(group)"
+            [disabled]="groupActionId() !== null"
+          >
+            {{ groupActionId() === group.id ? 'Eliminando…' : 'Eliminar' }}
+          </button>
+        </div>
+      </li>
+    }
+  </ul>
+}
+
+@if (selectedGroup(); as group) {
+  <section class="member-panel" aria-labelledby="member-panel-title">
+    <div class="member-heading">
+      <div>
+        <p class="section-index">Composición</p>
+        <h2 id="member-panel-title">{{ group.name }}</h2>
+      </div>
+      <button class="text-button" type="button" (click)="closeMembers()">Cerrar</button>
+    </div>
+    <form class="member-form" [formGroup]="memberForm" (ngSubmit)="assign()">
+      <div class="field">
+        <label for="musician-id">Identificador del músico</label>
+        <input id="musician-id" type="number" min="1" formControlName="musicianId" />
+        <small>Usa el identificador visible en la gestión de usuarios.</small>
+      </div>
+      <button class="button" type="submit" [disabled]="memberActionId() !== null">
+        Añadir al grupo
+      </button>
+    </form>
+    @if (memberError()) {
+      <p class="form-message error" role="alert">{{ memberError() }}</p>
+    }
+    @if (membersLoading()) {
+      <p role="status">Consultando miembros…</p>
+    } @else if (membersFailed()) {
+      <p class="form-message error" role="alert">No se han podido consultar los miembros.</p>
+    } @else if (members().length === 0) {
+      <p>Este grupo todavía no tiene músicos asignados.</p>
+    } @else {
+      <ul class="member-list">
+        @for (member of members(); track member.id) {
+          <li>
+            <span
+              ><strong>{{ member.email }}</strong> · ID {{ member.id }}</span
+            >
+            <button
+              class="text-button danger"
+              type="button"
+              (click)="unassign(member)"
+              [disabled]="memberActionId() !== null"
+            >
+              {{ memberActionId() === member.id ? 'Retirando…' : 'Retirar' }}
+            </button>
+          </li>
+        }
+      </ul>
+    }
+  </section>
+}

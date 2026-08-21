@@ -1,0 +1,165 @@
+.admin-heading,
+.admin-form {
+  display: grid;
+  gap: clamp(2rem, 5vw, 5rem);
+  grid-template-columns: minmax(0, 1fr) minmax(18rem, 1fr);
+  padding: clamp(2rem, 6vw, 6rem);
+}
+
+.admin-heading {
+  border-bottom: 1px solid var(--color-line);
+}
+
+.admin-heading h1 {
+  font-size: clamp(3.5rem, 8vw, 8rem);
+  line-height: 0.85;
+  margin: 0.6rem 0 0;
+}
+
+.admin-heading > p,
+.admin-form > form {
+  align-self: end;
+}
+
+.admin-heading > p,
+.admin-list p {
+  color: var(--color-muted);
+  line-height: 1.7;
+}
+
+.admin-form {
+  background: var(--color-paper-deep);
+  border-bottom: 1px solid var(--color-line);
+}
+
+.admin-form h2,
+.member-heading h2 {
+  font-size: clamp(2rem, 4vw, 4rem);
+  line-height: 1;
+  margin: 0.5rem 0;
+}
+
+form {
+  display: grid;
+  gap: 1rem;
+}
+
+.form-actions,
+.record-actions,
+.member-heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.page-message {
+  margin-inline: clamp(1rem, 6vw, 6rem);
+}
+
+.admin-list,
+.member-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.admin-list {
+  padding: 0 clamp(1rem, 6vw, 6rem) 5rem;
+}
+
+.admin-list li,
+.member-list li {
+  align-items: center;
+  border-bottom: 1px solid var(--color-line);
+  display: grid;
+  gap: 2rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding-block: 2rem;
+}
+
+.admin-list h2 {
+  font-size: clamp(2rem, 4vw, 3.5rem);
+  line-height: 1;
+  margin: 0.3rem 0;
+}
+
+.admin-list p {
+  margin: 0;
+}
+
+.record-meta {
+  color: var(--color-accent-strong) !important;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.text-button {
+  background: transparent;
+  border: 0;
+  color: var(--color-ink);
+  cursor: pointer;
+  font-weight: 700;
+  padding: 0.7rem;
+  text-decoration: underline;
+}
+
+.text-button.danger {
+  color: var(--color-danger);
+}
+
+.text-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.member-panel {
+  background: var(--color-ink);
+  color: var(--color-paper);
+  padding: clamp(2rem, 6vw, 6rem);
+}
+
+.member-heading {
+  align-items: start;
+  justify-content: space-between;
+}
+
+.member-panel .section-index,
+.member-panel .text-button {
+  color: var(--color-paper);
+}
+
+.member-panel .danger,
+.member-panel .form-message.error {
+  color: #ffb4a9;
+}
+
+.member-form {
+  align-items: end;
+  display: grid;
+  grid-template-columns: minmax(12rem, 24rem) auto;
+  margin-block: 2rem;
+}
+
+.member-form input {
+  background: var(--color-paper);
+}
+
+.member-form .button {
+  background: var(--color-paper);
+  color: var(--color-ink);
+}
+
+.field small {
+  color: color-mix(in srgb, currentColor 70%, transparent);
+}
+
+@media (max-width: 750px) {
+  .admin-heading,
+  .admin-form,
+  .admin-list li,
+  .member-form {
+    grid-template-columns: 1fr;
+  }
+}

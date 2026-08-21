@@ -24,6 +24,14 @@ const musicianLibrary = () =>
     (module) => module.MusicianLibraryPage,
   );
 
+const adminUsers = () =>
+  import('./features/private/admin/users/admin-users-page').then((module) => module.AdminUsersPage);
+
+const adminGroups = () =>
+  import('./features/private/admin/groups/admin-groups-page').then(
+    (module) => module.AdminGroupsPage,
+  );
+
 export const routes: Routes = [
   {
     path: 'musico',
@@ -42,7 +50,11 @@ export const routes: Routes = [
     canActivate: [authGuard, roleGuard],
     data: { role: 'ADMIN' },
     loadComponent: privateLayout,
-    children: [{ path: '', title: 'Administración', loadComponent: privateHome }],
+    children: [
+      { path: '', title: 'Administración', loadComponent: privateHome },
+      { path: 'usuarios', title: 'Gestión de usuarios', loadComponent: adminUsers },
+      { path: 'grupos', title: 'Gestión de grupos', loadComponent: adminGroups },
+    ],
   },
   {
     path: '',

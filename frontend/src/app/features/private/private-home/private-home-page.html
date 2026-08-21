@@ -25,15 +25,20 @@
     </div>
   </section>
 } @else {
-  <section class="foundation-note" aria-labelledby="foundation-title">
-    <span aria-hidden="true">♪</span>
-    <div>
-      <p class="section-index">Base privada preparada</p>
-      <h2 id="foundation-title">La gestión administrativa llega en la siguiente tanda.</h2>
-      <p>
-        La sesión, la protección por rol y el cierre de sesión ya son reales. No mostramos módulos
-        simulados como si estuvieran disponibles.
-      </p>
+  <section class="private-actions" aria-labelledby="admin-actions-title">
+    <p class="section-index">Gestión de la banda</p>
+    <h2 id="admin-actions-title">Personas y agrupaciones, en un único espacio.</h2>
+    <div class="action-grid">
+      <a routerLink="/administracion/usuarios">
+        <span>01</span>
+        <h3>Usuarios</h3>
+        <p>Crea cuentas, actualiza datos y desactiva accesos conservando el historial.</p>
+      </a>
+      <a routerLink="/administracion/grupos">
+        <span>02</span>
+        <h3>Grupos</h3>
+        <p>Organiza agrupaciones y asigna músicos mediante operaciones auditadas.</p>
+      </a>
     </div>
   </section>
 }

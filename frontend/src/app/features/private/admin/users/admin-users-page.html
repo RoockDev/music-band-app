@@ -1,0 +1,129 @@
+<header class="admin-heading">
+  <div>
+    <p class="eyebrow">Administración</p>
+    <h1>Usuarios</h1>
+  </div>
+  <p>Crea cuentas, conserva sus datos de contacto y desactiva accesos sin borrar el historial.</p>
+</header>
+
+<section class="admin-form" aria-labelledby="user-form-title">
+  <div>
+    <p class="section-index">{{ editingId() === null ? 'Nueva cuenta' : 'Edición' }}</p>
+    <h2 id="user-form-title">
+      {{ editingId() === null ? 'Dar acceso a una persona' : 'Actualizar la cuenta' }}
+    </h2>
+  </div>
+  <form [formGroup]="userForm" (ngSubmit)="submit()">
+    <div class="field">
+      <label for="user-email">Correo electrónico</label>
+      <input id="user-email" type="email" formControlName="email" autocomplete="off" />
+      @if (userForm.controls.email.touched && userForm.controls.email.invalid) {
+        <p class="field-error">Introduce un correo electrónico válido.</p>
+      }
+    </div>
+    <div class="field">
+      <label for="user-role">Tipo de cuenta</label>
+      <select id="user-role" formControlName="role">
+        <option value="MUSICIAN">Músico</option>
+        <option value="ADMIN">Administración</option>
+      </select>
+      <small>Crear o cambiar una cuenta administrativa requiere permiso adicional.</small>
+    </div>
+    <label class="check-field">
+      <input type="checkbox" formControlName="minor" />
+      La persona es menor de edad
+    </label>
+    @if (userForm.controls.minor.value) {
+      <div class="field">
+        <label for="guardian-contact">Contacto responsable</label>
+        <input id="guardian-contact" type="text" formControlName="guardianContact" />
+      </div>
+      <label class="check-field">
+        <input type="checkbox" formControlName="consentOnFile" />
+        El consentimiento está archivado
+      </label>
+    }
+    @if (formError()) {
+      <p class="form-message error" role="alert">{{ formError() }}</p>
+    }
+    <div class="form-actions">
+      <button class="button" type="submit" [disabled]="saving()">
+        {{ saving() ? 'Guardando…' : editingId() === null ? 'Crear cuenta' : 'Guardar cambios' }}
+      </button>
+      @if (editingId() !== null) {
+        <button class="button secondary" type="button" (click)="resetForm()">Cancelar</button>
+      }
+    </div>
+  </form>
+</section>
+
+@if (activationLink()) {
+  <section class="token-notice" role="status" aria-labelledby="activation-token-title">
+    <p class="section-index">Mostrar una sola vez</p>
+    <h2 id="activation-token-title">Entrega este enlace de activación de forma segura</h2>
+    <p>El servidor no volverá a mostrar este token. Guárdalo antes de salir de esta página.</p>
+    <code>{{ activationLink() }}</code>
+  </section>
+}
+
+@if (actionError()) {
+  <p class="form-message error page-message" role="alert">{{ actionError() }}</p>
+}
+
+@if (loading()) {
+  <app-page-state kind="loading" loadingText="Consultando las cuentas…" />
+} @else if (failed()) {
+  <app-page-state
+    kind="error"
+    errorText="No se pueden consultar los usuarios. Comprueba que tu cuenta tenga permiso para gestionarlos."
+    (retry)="load()"
+  />
+} @else if (users().length === 0) {
+  <app-page-state kind="empty" emptyText="Todavía no hay cuentas registradas." />
+} @else {
+  <ul class="admin-list">
+    @for (user of users(); track user.id) {
+      <li>
+        <div>
+          <p class="record-meta">
+            ID {{ user.id }} · {{ user.role === 'ADMIN' ? 'Administración' : 'Músico' }} ·
+            {{
+              user.status === 'ACTIVE'
+                ? 'Activa'
+                : user.status === 'PENDING'
+                  ? 'Pendiente'
+                  : 'Desactivada'
+            }}
+          </p>
+          <h2>{{ user.email }}</h2>
+          <p>
+            Alta {{ user.createdAt | date: 'mediumDate' }}
+            @if (user.minor) {
+              · Menor de edad
+            }
+          </p>
+        </div>
+        <div class="record-actions">
+          <button
+            class="text-button"
+            type="button"
+            (click)="edit(user)"
+            [disabled]="user.id === session()?.id || actionId() !== null"
+          >
+            Editar
+          </button>
+          @if (user.status !== 'DEACTIVATED') {
+            <button
+              class="text-button danger"
+              type="button"
+              (click)="deactivate(user)"
+              [disabled]="user.id === session()?.id || actionId() !== null"
+            >
+              {{ actionId() === user.id ? 'Desactivando…' : 'Desactivar' }}
+            </button>
+          }
+        </div>
+      </li>
+    }
+  </ul>
+}

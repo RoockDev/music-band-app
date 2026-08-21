@@ -1,0 +1,157 @@
+.admin-heading,
+.admin-form {
+  display: grid;
+  gap: clamp(2rem, 5vw, 5rem);
+  grid-template-columns: minmax(0, 1fr) minmax(18rem, 1fr);
+  padding: clamp(2rem, 6vw, 6rem);
+}
+
+.admin-heading {
+  border-bottom: 1px solid var(--color-line);
+}
+
+.admin-heading h1 {
+  font-size: clamp(3.5rem, 8vw, 8rem);
+  line-height: 0.85;
+  margin: 0.6rem 0 0;
+}
+
+.admin-heading > p,
+.admin-form > div + form {
+  align-self: end;
+}
+
+.admin-heading > p {
+  color: var(--color-muted);
+  line-height: 1.7;
+}
+
+.admin-form {
+  background: var(--color-paper-deep);
+  border-bottom: 1px solid var(--color-line);
+}
+
+.admin-form h2,
+.token-notice h2 {
+  font-size: clamp(2rem, 4vw, 4rem);
+  line-height: 1;
+  margin: 0.5rem 0;
+}
+
+form {
+  display: grid;
+  gap: 1rem;
+}
+
+.field select {
+  background: color-mix(in srgb, var(--color-paper) 75%, white);
+  border: 1px solid var(--color-ink);
+  border-radius: 0;
+  color: var(--color-ink);
+  min-height: 3rem;
+  padding: 0.75rem;
+}
+
+.field small {
+  color: var(--color-muted);
+}
+
+.check-field {
+  align-items: center;
+  display: flex;
+  gap: 0.65rem;
+}
+
+.check-field input {
+  height: 1.2rem;
+  width: 1.2rem;
+}
+
+.form-actions,
+.record-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.token-notice {
+  border: 2px solid var(--color-success);
+  margin: 2rem clamp(1rem, 6vw, 6rem);
+  padding: 2rem;
+}
+
+.token-notice code {
+  background: var(--color-ink);
+  color: var(--color-paper);
+  display: block;
+  overflow-wrap: anywhere;
+  padding: 1rem;
+  user-select: all;
+}
+
+.page-message {
+  margin-inline: clamp(1rem, 6vw, 6rem);
+}
+
+.admin-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 clamp(1rem, 6vw, 6rem) 5rem;
+}
+
+.admin-list li {
+  align-items: center;
+  border-bottom: 1px solid var(--color-line);
+  display: grid;
+  gap: 2rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding-block: 2rem;
+}
+
+.admin-list h2 {
+  font-family: var(--font-sans);
+  font-size: clamp(1.2rem, 3vw, 2rem);
+  letter-spacing: -0.02em;
+  margin: 0.3rem 0;
+  overflow-wrap: anywhere;
+}
+
+.admin-list p {
+  color: var(--color-muted);
+  margin: 0;
+}
+
+.record-meta {
+  color: var(--color-accent-strong) !important;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.text-button {
+  background: transparent;
+  border: 0;
+  color: var(--color-ink);
+  cursor: pointer;
+  font-weight: 700;
+  padding: 0.7rem;
+  text-decoration: underline;
+}
+
+.text-button.danger {
+  color: var(--color-danger);
+}
+
+.text-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+@media (max-width: 750px) {
+  .admin-heading,
+  .admin-form,
+  .admin-list li {
+    grid-template-columns: 1fr;
+  }
+}
