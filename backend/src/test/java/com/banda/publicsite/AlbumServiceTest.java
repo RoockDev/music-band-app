@@ -2,7 +2,9 @@ package com.banda.publicsite;
 
 import com.banda.audit.AuditService;
 import com.banda.common.FileStorage;
+import com.banda.common.FileDeletionQueue;
 import com.banda.publicsite.dto.CreateAlbumRequest;
+import com.banda.publicsite.dto.UpdateAlbumRequest;
 import com.banda.security.Permission;
 import com.banda.security.PermissionDeniedException;
 import com.banda.security.PermissionService;
@@ -12,6 +14,7 @@ import com.banda.users.UserStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -49,6 +52,7 @@ class AlbumServiceTest {
     private PermissionService permissionService;
     private AuditService auditService;
     private FileStorage fileStorage;
+    private FileDeletionQueue fileDeletionQueue;
     private AlbumService albumService;
 
     @BeforeEach
@@ -58,9 +62,10 @@ class AlbumServiceTest {
         permissionService = mock(PermissionService.class);
         auditService = mock(AuditService.class);
         fileStorage = mock(FileStorage.class);
+        fileDeletionQueue = mock(FileDeletionQueue.class);
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         albumService = new AlbumService(albumRepository, photoRepository, permissionService, auditService,
-                fileStorage, clock);
+                fileStorage, fileDeletionQueue, clock);
 
         when(albumRepository.saveAndFlush(any(Album.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(photoRepository.saveAndFlush(any(Photo.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -211,5 +216,48 @@ class AlbumServiceTest {
                 .hasMessage("DB down");
 
         verifyNoInteractions(auditService);
+    }
+
+    @Test
+    void updateAlbumRejectsAStaleVersion() {
+        UserAccount actor = adminActor();
+        Album album = new Album("Old", null, NOW);
+        ReflectionTestUtils.setField(album, "version", 2L);
+        when(albumRepository.findById(5L)).thenReturn(Optional.of(album));
+
+        assertThatThrownBy(() -> albumService.updateAlbum(actor, 5L,
+                new UpdateAlbumRequest("New", null, 1L)))
+                .isInstanceOf(ConcurrentContentModificationException.class);
+    }
+
+    @Test
+    void deleteAlbumIsBlockedWhilePhotosExist() {
+        UserAccount actor = adminActor();
+        Album album = new Album("Used", null, NOW);
+        ReflectionTestUtils.setField(album, "version", 0L);
+        when(albumRepository.findById(5L)).thenReturn(Optional.of(album));
+        when(photoRepository.existsByAlbum(album)).thenReturn(true);
+
+        assertThatThrownBy(() -> albumService.deleteAlbum(actor, 5L, 0L))
+                .isInstanceOf(AlbumInUseException.class);
+
+        verify(albumRepository, org.mockito.Mockito.never()).delete(any());
+        verifyNoInteractions(auditService);
+    }
+
+    @Test
+    void deletePhotoTracksStorageCleanupBeforeRemovingMetadata() {
+        UserAccount actor = adminActor();
+        Album album = new Album("Album", null, NOW);
+        ReflectionTestUtils.setField(album, "id", 5L);
+        Photo photo = new Photo(album, "Caption", "storage-key", "image/jpeg", NOW);
+        when(photoRepository.findById(9L)).thenReturn(Optional.of(photo));
+
+        albumService.deletePhoto(actor, 9L);
+
+        verify(fileDeletionQueue).enqueue("storage-key");
+        verify(photoRepository).delete(photo);
+        verify(photoRepository).flush();
+        verify(auditService).record(actor.getId(), "PHOTO_DELETED", "Photo", 9L, "albumId=5");
     }
 }

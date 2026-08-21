@@ -2,6 +2,8 @@ package com.banda.publicsite;
 
 import com.banda.audit.AuditLog;
 import com.banda.audit.AuditLogRepository;
+import com.banda.common.FileStorage;
+import com.banda.common.PendingFileDeletionRepository;
 import com.banda.security.AdminPermission;
 import com.banda.security.AdminPermissionRepository;
 import com.banda.security.Permission;
@@ -22,10 +24,14 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 import java.time.Instant;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -64,6 +70,12 @@ class AlbumControllerIntegrationTest extends IntegrationTestBase {
 
     @Autowired
     private PasswordEncoder passwordEncoder;
+
+    @Autowired
+    private FileStorage fileStorage;
+
+    @Autowired
+    private PendingFileDeletionRepository pendingFileDeletionRepository;
 
     private Cookie fetchCsrfCookie() throws Exception {
         MvcResult result = mockMvc.perform(get("/api/auth/csrf")).andReturn();
@@ -236,5 +248,47 @@ class AlbumControllerIntegrationTest extends IntegrationTestBase {
                         .cookie(csrf, accessToken)
                         .header("X-XSRF-TOKEN", csrf.getValue()))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void deletePhotoCleansStorageAndUnblocksVersionedAlbumDeletion() throws Exception {
+        UserAccount admin = persistActive("admin-photo-delete@example.com", "AdminPass1!", UserRole.ADMIN);
+        adminPermissionRepository.saveAndFlush(new AdminPermission(admin, Permission.MANAGE_CONTENT));
+        Album album = albumRepository.saveAndFlush(new Album("Delete lifecycle", null, NOW));
+        String storageKey = fileStorage.store(new ByteArrayInputStream(new byte[] {9, 8, 7}));
+        Photo photo = photoRepository.saveAndFlush(new Photo(album, null, storageKey, "image/jpeg", NOW));
+
+        Cookie csrf = fetchCsrfCookie();
+        Cookie accessToken = loginAndGetAccessTokenCookie("admin-photo-delete@example.com", "AdminPass1!", csrf);
+
+        mockMvc.perform(delete("/api/albums/" + album.getId())
+                        .queryParam("version", String.valueOf(album.getVersion()))
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue()))
+                .andExpect(status().isConflict());
+
+        mockMvc.perform(delete("/api/albums/photos/" + photo.getId())
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue()))
+                .andExpect(status().isNoContent());
+
+        assertThat(photoRepository.findById(photo.getId())).isEmpty();
+        assertThat(pendingFileDeletionRepository.findAll()).isEmpty();
+        assertThatThrownByIOException(() -> fileStorage.retrieve(storageKey));
+
+        mockMvc.perform(delete("/api/albums/" + album.getId())
+                        .queryParam("version", String.valueOf(album.getVersion()))
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue()))
+                .andExpect(status().isNoContent());
+    }
+
+    private void assertThatThrownByIOException(IoOperation operation) {
+        assertThatThrownBy(operation::run).isInstanceOf(IOException.class);
+    }
+
+    @FunctionalInterface
+    private interface IoOperation {
+        void run() throws IOException;
     }
 }

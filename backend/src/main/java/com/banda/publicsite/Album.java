@@ -77,4 +77,10 @@ public class Album {
     public Long getVersion() {
         return version;
     }
+
+    void update(String name, String description, Instant now) {
+        this.name = name;
+        this.description = description;
+        this.updatedAt = now;
+    }
 }

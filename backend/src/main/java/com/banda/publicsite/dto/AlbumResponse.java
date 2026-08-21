@@ -14,11 +14,13 @@ public record AlbumResponse(
         String description,
         List<PhotoResponse> photos,
         Instant createdAt,
-        Instant updatedAt
+        Instant updatedAt,
+        Long version
 ) {
 
     public static AlbumResponse from(Album album, List<Photo> photos) {
         return new AlbumResponse(album.getId(), album.getName(), album.getDescription(),
-                photos.stream().map(PhotoResponse::from).toList(), album.getCreatedAt(), album.getUpdatedAt());
+                photos.stream().map(PhotoResponse::from).toList(), album.getCreatedAt(), album.getUpdatedAt(),
+                album.getVersion());
     }
 }

@@ -13,4 +13,8 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
      * firehose" tradeoff, acceptable at this app's scale) without a separate query per album.
      */
     List<Photo> findAllByOrderByAlbumIdAscIdAsc();
+
+    boolean existsByAlbum(Album album);
+
+    List<Photo> findAllByAlbumOrderByIdAsc(Album album);
 }
