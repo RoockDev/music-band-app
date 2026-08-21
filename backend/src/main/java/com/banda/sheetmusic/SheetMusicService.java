@@ -131,7 +131,7 @@ public class SheetMusicService {
 
     @Transactional(readOnly = true)
     public List<SheetMusic> list(UserAccount actor) {
-        return sheetMusicRepository.findAll().stream()
+        return sheetMusicRepository.findByActiveTrue().stream()
                 .filter(SheetMusic::isActive)
                 .filter(sheetMusic -> accessService.canAccess(actor, sheetMusic))
                 .toList();

@@ -262,7 +262,7 @@ class SheetMusicServiceTest {
         SheetMusic denied = persistedSheetMusic(41L, false);
         SheetMusic inactive = persistedSheetMusic(42L, true);
         org.springframework.test.util.ReflectionTestUtils.setField(inactive, "active", false);
-        when(sheetMusicRepository.findAll()).thenReturn(List.of(visible, denied, inactive));
+        when(sheetMusicRepository.findByActiveTrue()).thenReturn(List.of(visible, denied, inactive));
         when(accessService.canAccess(actor, visible)).thenReturn(true);
         when(accessService.canAccess(actor, denied)).thenReturn(false);
 
