@@ -85,6 +85,59 @@ h1 {
   max-width: 50rem;
 }
 
+.live-archive {
+  padding: clamp(4rem, 8vw, 8rem) clamp(1rem, 5vw, 5.5rem);
+}
+
+.live-archive > header {
+  align-items: end;
+  display: flex;
+  gap: 2rem;
+  justify-content: space-between;
+}
+
+.live-archive h2 {
+  font-size: clamp(3rem, 6vw, 6rem);
+  line-height: 0.9;
+  margin: 0;
+}
+
+.highlights {
+  border-top: 1px solid var(--color-line);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 2rem;
+}
+
+.highlights > div {
+  min-height: 22rem;
+  padding: 2rem;
+}
+
+.highlights > div:first-child {
+  padding-left: 0;
+}
+
+.highlights > div + div {
+  border-left: 1px solid var(--color-line);
+}
+
+.highlights article {
+  border-bottom: 1px solid var(--color-line);
+  padding-block: 1rem;
+}
+
+.highlights h3 {
+  font-size: 1.8rem;
+  margin: 0.35rem 0;
+}
+
+.highlights time,
+.highlights article p {
+  color: var(--color-muted);
+  font-size: 0.82rem;
+}
+
 .route-ledger {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -142,6 +195,21 @@ h1 {
 
   .route-ledger {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .highlights {
+    grid-template-columns: 1fr;
+  }
+
+  .highlights > div,
+  .highlights > div:first-child {
+    min-height: auto;
+    padding: 2rem 0;
+  }
+
+  .highlights > div + div {
+    border-left: 0;
+    border-top: 1px solid var(--color-line);
   }
 
   .route-ledger a {

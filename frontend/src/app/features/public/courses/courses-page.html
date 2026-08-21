@@ -1,0 +1,31 @@
+<header class="page-heading">
+  <div>
+    <p class="eyebrow">Aprender haciendo</p>
+    <h1>Cursos</h1>
+  </div>
+  <p>Propuestas formativas publicadas por la organización, con fechas y condiciones reales.</p>
+</header>
+
+@if (loading()) {
+  <app-page-state kind="loading" loadingText="Consultando la oferta formativa…" />
+} @else if (failed()) {
+  <app-page-state kind="error" errorText="No podemos mostrar los cursos ahora." (retry)="load()" />
+} @else if (items().length === 0) {
+  <app-page-state kind="empty" emptyText="No hay cursos abiertos en este momento." />
+} @else {
+  <div class="course-grid">
+    @for (item of items(); track item.id; let index = $index) {
+      <article>
+        <p class="section-index">Programa {{ (index + 1).toString().padStart(2, '0') }}</p>
+        <h2>{{ item.title }}</h2>
+        @if (item.description) { <p class="description">{{ item.description }}</p> }
+        <dl>
+          <div><dt>Fechas</dt><dd>{{ item.startDate | date: 'd MMM' }} — {{ item.endDate | date: 'd MMM yyyy' }}</dd></div>
+          <div><dt>Instrumento</dt><dd>{{ item.instrument || 'Formación general' }}</dd></div>
+          <div><dt>Edad mínima</dt><dd>{{ item.minimumAge }} años</dd></div>
+          <div><dt>Precio</dt><dd>{{ item.price | number: '1.2-2' }} €</dd></div>
+        </dl>
+      </article>
+    }
+  </div>
+}

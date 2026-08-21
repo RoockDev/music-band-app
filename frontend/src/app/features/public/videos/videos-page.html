@@ -1,0 +1,27 @@
+<header class="page-heading">
+  <div>
+    <p class="eyebrow">Escucha visual</p>
+    <h1>Vídeos</h1>
+  </div>
+  <p>Interpretaciones y documentos audiovisuales publicados en nuestros canales externos.</p>
+</header>
+
+@if (loading()) {
+  <app-page-state kind="loading" loadingText="Afinando la selección…" />
+} @else if (failed()) {
+  <app-page-state kind="error" errorText="Los vídeos no están disponibles." (retry)="load()" />
+} @else if (items().length === 0) {
+  <app-page-state kind="empty" emptyText="Todavía no hay vídeos publicados." />
+} @else {
+  <ol class="video-list">
+    @for (item of items(); track item.id; let index = $index) {
+      <li>
+        <span>{{ (index + 1).toString().padStart(2, '0') }}</span>
+        <h2>{{ item.title }}</h2>
+        <a class="button secondary" [href]="item.url" target="_blank" rel="noreferrer">
+          Ver vídeo <span class="visually-hidden">: {{ item.title }}</span>
+        </a>
+      </li>
+    }
+  </ol>
+}

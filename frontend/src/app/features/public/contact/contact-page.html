@@ -1,0 +1,57 @@
+<header class="page-heading">
+  <div>
+    <p class="eyebrow">Abrir conversación</p>
+    <h1>Contacto</h1>
+  </div>
+  <p>Cuéntanos qué necesitas. El formulario se envía directamente al equipo responsable.</p>
+</header>
+
+<section class="contact-layout">
+  <aside>
+    <p class="section-index">Datos de contacto</p>
+    <address>
+      <strong>{{ brand.name }}</strong>
+      <span>{{ brand.contact.address }}</span>
+      <a [href]="'mailto:' + brand.contact.email">{{ brand.contact.email }}</a>
+      <a [href]="'tel:' + brand.contact.phone">{{ brand.contact.phone }}</a>
+    </address>
+  </aside>
+
+  <form [formGroup]="form" (ngSubmit)="submit()" novalidate>
+    <div class="field">
+      <label for="contact-name">Nombre</label>
+      <input id="contact-name" type="text" formControlName="name" autocomplete="name" />
+      @if (form.controls.name.touched && form.controls.name.invalid) {
+        <p class="field-error">Indica tu nombre (máximo 255 caracteres).</p>
+      }
+    </div>
+
+    <div class="field">
+      <label for="contact-email">Correo electrónico</label>
+      <input id="contact-email" type="email" formControlName="email" autocomplete="email" />
+      @if (form.controls.email.touched && form.controls.email.invalid) {
+        <p class="field-error">Introduce un correo electrónico válido.</p>
+      }
+    </div>
+
+    <div class="field full-width">
+      <label for="contact-message">Mensaje</label>
+      <textarea id="contact-message" formControlName="message" maxlength="5000"></textarea>
+      @if (form.controls.message.touched && form.controls.message.invalid) {
+        <p class="field-error">Escribe un mensaje de hasta 5000 caracteres.</p>
+      }
+    </div>
+
+    <div class="full-width">
+      @if (sent()) {
+        <p class="form-message success" role="status">Mensaje enviado. Gracias por escribirnos.</p>
+      }
+      @if (failed()) {
+        <p class="form-message error" role="alert">No se ha podido enviar. Revisa los datos e inténtalo de nuevo.</p>
+      }
+      <button class="button" type="submit" [disabled]="sending()">
+        {{ sending() ? 'Enviando…' : 'Enviar mensaje' }}
+      </button>
+    </div>
+  </form>
+</section>

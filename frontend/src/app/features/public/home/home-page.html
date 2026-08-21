@@ -28,6 +28,51 @@
   </div>
 </section>
 
+<section class="live-archive" aria-labelledby="live-archive-title">
+  <header>
+    <p class="section-index">02 / Publicado</p>
+    <h2 id="live-archive-title">El archivo, hoy</h2>
+  </header>
+
+  @if (loading()) {
+    <app-page-state kind="loading" loadingText="Consultando las últimas publicaciones…" />
+  } @else if (failed()) {
+    <app-page-state kind="error" (retry)="loadHighlights()" />
+  } @else if (news().length === 0 && events().length === 0 && courses().length === 0) {
+    <app-page-state kind="empty" emptyText="Todavía no hay publicaciones destacadas." />
+  } @else {
+    <div class="highlights">
+      <div>
+        <p class="eyebrow">Próximamente</p>
+        @for (event of events(); track event.id) {
+          <article>
+            <time [attr.datetime]="event.startsAt">{{ event.startsAt | date: 'd MMM · HH:mm' }}</time>
+            <h3>{{ event.title }}</h3>
+          </article>
+        } @empty { <p>Sin fechas publicadas.</p> }
+        <a class="text-link" routerLink="/agenda">Agenda completa →</a>
+      </div>
+      <div>
+        <p class="eyebrow">Últimas noticias</p>
+        @for (item of news(); track item.id) {
+          <article><h3>{{ item.title }}</h3></article>
+        } @empty { <p>Sin noticias publicadas.</p> }
+        <a class="text-link" routerLink="/noticias">Todas las noticias →</a>
+      </div>
+      <div>
+        <p class="eyebrow">Formación</p>
+        @for (course of courses(); track course.id) {
+          <article>
+            <h3>{{ course.title }}</h3>
+            <p>{{ course.instrument || 'Formación musical' }}</p>
+          </article>
+        } @empty { <p>Sin cursos abiertos.</p> }
+        <a class="text-link" routerLink="/cursos">Ver cursos →</a>
+      </div>
+    </div>
+  }
+</section>
+
 <section class="route-ledger" aria-label="Explorar el archivo">
   <a routerLink="/noticias"><span>01</span><strong>Noticias</strong><small>Lo que está ocurriendo</small></a>
   <a routerLink="/galeria"><span>02</span><strong>Galería</strong><small>Memoria visual</small></a>

@@ -1,0 +1,39 @@
+<header class="page-heading">
+  <div>
+    <p class="eyebrow">Memoria visual</p>
+    <h1>Galería</h1>
+  </div>
+  <p>Álbumes conservados como series, no como imágenes aisladas de su contexto.</p>
+</header>
+
+@if (loading()) {
+  <app-page-state kind="loading" loadingText="Revelando las fotografías…" />
+} @else if (failed()) {
+  <app-page-state kind="error" errorText="La galería no está disponible." (retry)="load()" />
+} @else if (albums().length === 0) {
+  <app-page-state kind="empty" emptyText="Todavía no hay álbumes publicados." />
+} @else {
+  <div class="album-list">
+    @for (album of albums(); track album.id; let albumIndex = $index) {
+      <section class="album" [attr.aria-labelledby]="'album-' + album.id">
+        <header>
+          <p class="section-index">Álbum {{ (albumIndex + 1).toString().padStart(2, '0') }}</p>
+          <h2 [id]="'album-' + album.id">{{ album.name }}</h2>
+          @if (album.description) { <p>{{ album.description }}</p> }
+        </header>
+        @if (album.photos.length === 0) {
+          <p class="empty-album">Este álbum todavía no contiene fotografías.</p>
+        } @else {
+          <div class="photo-grid">
+            @for (photo of album.photos; track photo.id) {
+              <figure>
+                <img [src]="content.photoUrl(photo.id)" [alt]="photo.caption || 'Fotografía del álbum ' + album.name" loading="lazy" />
+                @if (photo.caption) { <figcaption>{{ photo.caption }}</figcaption> }
+              </figure>
+            }
+          </div>
+        }
+      </section>
+    }
+  </div>
+}

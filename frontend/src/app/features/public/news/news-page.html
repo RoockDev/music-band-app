@@ -1,0 +1,30 @@
+<header class="page-heading">
+  <div>
+    <p class="eyebrow">Actualidad / Archivo abierto</p>
+    <h1>Noticias</h1>
+  </div>
+  <p>Crónicas, anuncios y momentos que explican la vida musical más allá del escenario.</p>
+</header>
+
+@if (loading()) {
+  <app-page-state kind="loading" loadingText="Cargando las noticias…" />
+} @else if (failed()) {
+  <app-page-state kind="error" (retry)="load()" />
+} @else if (items().length === 0) {
+  <app-page-state kind="empty" emptyText="Todavía no hay noticias publicadas." />
+} @else {
+  <ol class="content-list">
+    @for (item of items(); track item.id; let index = $index) {
+      <li class="content-row">
+        <div>
+          <p class="section-index">{{ (index + 1).toString().padStart(2, '0') }}</p>
+          <time [attr.datetime]="item.publishedAt">{{ item.publishedAt | date: 'd MMMM yyyy' }}</time>
+        </div>
+        <article>
+          <h2>{{ item.title }}</h2>
+          <p>{{ item.body }}</p>
+        </article>
+      </li>
+    }
+  </ol>
+}

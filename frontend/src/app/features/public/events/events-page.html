@@ -1,0 +1,35 @@
+<header class="page-heading">
+  <div>
+    <p class="eyebrow">Próximas fechas</p>
+    <h1>Agenda pública</h1>
+  </div>
+  <p>Conciertos, encuentros y actividades abiertas. La información procede de la agenda oficial.</p>
+</header>
+
+@if (loading()) {
+  <app-page-state kind="loading" loadingText="Consultando la agenda…" />
+} @else if (failed()) {
+  <app-page-state kind="error" errorText="No hemos podido consultar la agenda." (retry)="load()" />
+} @else if (items().length === 0) {
+  <app-page-state kind="empty" emptyText="No hay próximas fechas publicadas." />
+} @else {
+  <ol class="event-list">
+    @for (item of items(); track item.id) {
+      <li [class.cancelled]="item.status === 'CANCELLED'">
+        <time [attr.datetime]="item.startsAt">
+          <strong>{{ item.startsAt | date: 'dd' }}</strong>
+          <span>{{ item.startsAt | date: 'MMM' }}</span>
+          <small>{{ item.startsAt | date: 'HH:mm' }}</small>
+        </time>
+        <div>
+          @if (item.status === 'CANCELLED') {
+            <p class="status-label">Cancelado</p>
+          }
+          <h2>{{ item.title }}</h2>
+          @if (item.description) { <p>{{ item.description }}</p> }
+        </div>
+        <p class="location">{{ item.location || 'Ubicación por confirmar' }}</p>
+      </li>
+    }
+  </ol>
+}
