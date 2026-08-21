@@ -7,6 +7,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -22,6 +23,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.time.Clock;
 
 /**
  * JWT-in-httpOnly-cookie auth + double-submit CSRF, per design decision #9.
@@ -37,10 +39,13 @@ import java.io.IOException;
  */
 @Configuration
 @EnableWebSecurity
+@EnableConfigurationProperties(PublicWriteRateLimitProperties.class)
 public class SecurityConfig {
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtAuthFilter jwtAuthFilter) throws Exception {
+    public SecurityFilterChain securityFilterChain(HttpSecurity http,
+                                                   JwtAuthFilter jwtAuthFilter,
+                                                   PublicWriteRateLimitFilter publicWriteRateLimitFilter) throws Exception {
         CsrfTokenRequestAttributeHandler requestHandler = new CsrfTokenRequestAttributeHandler();
 
         http
@@ -127,6 +132,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/contact").permitAll()
                         .anyRequest().authenticated())
                 .addFilterAfter(new CsrfCookieFilter(), BasicAuthenticationFilter.class)
+                .addFilterAfter(publicWriteRateLimitFilter, CsrfCookieFilter.class)
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
@@ -135,6 +141,12 @@ public class SecurityConfig {
     @Bean
     public JwtAuthFilter jwtAuthFilter(JwtService jwtService, UserAccountRepository userAccountRepository) {
         return new JwtAuthFilter(jwtService, userAccountRepository);
+    }
+
+    @Bean
+    public PublicWriteRateLimitFilter publicWriteRateLimitFilter(PublicWriteRateLimitProperties properties,
+                                                                 Clock clock) {
+        return new PublicWriteRateLimitFilter(properties, clock);
     }
 
     @Bean

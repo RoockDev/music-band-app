@@ -44,6 +44,19 @@ app:
     # Integration tests run over plain HTTP via MockMvc/TestRestTemplate (no TLS), so a
     # Secure-flagged cookie would never round-trip back to the client — disable it here.
     cookie-secure: false
+    public-write-rate-limit:
+      login:
+        requests: 1000
+        window: PT1M
+      password-reset:
+        requests: 1000
+        window: PT15M
+      token-redemption:
+        requests: 1000
+        window: PT15M
+      contact:
+        requests: 1000
+        window: PT10M
   file-storage:
     # Fallback only: every @SpringBootTest integration test extends IntegrationTestBase,
     # which always overrides this via @DynamicPropertySource with a fresh, cleaned-up

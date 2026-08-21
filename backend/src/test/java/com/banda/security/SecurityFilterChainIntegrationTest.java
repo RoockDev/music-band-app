@@ -13,6 +13,7 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -30,6 +31,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @AutoConfigureMockMvc
 @Import(SecurityFilterChainIntegrationTest.PingTestConfig.class)
+@TestPropertySource(properties = "app.security.public-write-rate-limit.login.requests=1")
 class SecurityFilterChainIntegrationTest extends IntegrationTestBase {
 
     private static final String JWT_COOKIE = "ACCESS_TOKEN";
@@ -103,6 +105,26 @@ class SecurityFilterChainIntegrationTest extends IntegrationTestBase {
 
         mockMvc.perform(get("/api/ping").cookie(new Cookie(JWT_COOKIE, tokenBeforeLogout)))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void repeatedPublicLoginIsRateLimitedByTheRealFilterChain() throws Exception {
+        MvcResult bootstrap = mockMvc.perform(get("/api/auth/csrf"))
+                .andExpect(status().isNoContent())
+                .andReturn();
+        Cookie xsrfCookie = bootstrap.getResponse().getCookie("XSRF-TOKEN");
+        assertThat(xsrfCookie).isNotNull();
+
+        var login = post("/api/auth/login")
+                .cookie(xsrfCookie)
+                .header("X-XSRF-TOKEN", xsrfCookie.getValue())
+                .contentType("application/json")
+                .content("{\"email\":\"unknown@example.com\",\"password\":\"wrong-password\"}");
+
+        mockMvc.perform(login)
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(login)
+                .andExpect(status().isTooManyRequests());
     }
 
     @TestConfiguration

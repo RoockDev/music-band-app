@@ -85,6 +85,20 @@ app:
     # httpOnly+Secure+SameSite cookie flag (design decision #9). Override to false only
     # for plain-HTTP local dev without TLS (see README) — never in a real deployment.
     cookie-secure: ${APP_SECURITY_COOKIE_SECURE:true}
+    public-write-rate-limit:
+      login:
+        requests: ${LOGIN_RATE_LIMIT_REQUESTS:10}
+        window: ${LOGIN_RATE_LIMIT_WINDOW:PT1M}
+      password-reset:
+        requests: ${PASSWORD_RESET_RATE_LIMIT_REQUESTS:5}
+        window: ${PASSWORD_RESET_RATE_LIMIT_WINDOW:PT15M}
+      token-redemption:
+        requests: ${TOKEN_REDEMPTION_RATE_LIMIT_REQUESTS:10}
+        window: ${TOKEN_REDEMPTION_RATE_LIMIT_WINDOW:PT15M}
+      contact:
+        requests: ${CONTACT_RATE_LIMIT_REQUESTS:5}
+        window: ${CONTACT_RATE_LIMIT_WINDOW:PT10M}
+      max-tracked-clients: ${PUBLIC_WRITE_RATE_LIMIT_MAX_CLIENTS:10000}
   file-storage:
     # Durable local storage for personal development, deliberately outside the application
     # classpath and static resources. Deployments can override it with an external directory.

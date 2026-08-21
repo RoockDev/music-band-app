@@ -21,6 +21,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Section 1 (Authentication) use cases, including self-service password-reset issuance.
@@ -33,6 +34,9 @@ import java.util.List;
 public class AuthService {
 
     private static final Logger log = LoggerFactory.getLogger(AuthService.class);
+    /** Valid BCrypt hash used to keep unknown/inactive-account login work comparable. */
+    private static final String DUMMY_PASSWORD_HASH =
+            "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy";
 
     private final UserAccountRepository userAccountRepository;
     private final PasswordTokenRepository passwordTokenRepository;
@@ -89,12 +93,14 @@ public class AuthService {
     }
 
     public LoginResult login(String email, String rawPassword) {
-        UserAccount user = userAccountRepository.findByEmail(email)
-                .filter(candidate -> candidate.getStatus() == UserStatus.ACTIVE)
-                .orElseThrow(() -> {
-                    log.warn("Login failed for email {}", email);
-                    return new InvalidCredentialsException();
-                });
+        Optional<UserAccount> candidate = userAccountRepository.findByEmail(email)
+                .filter(user -> user.getStatus() == UserStatus.ACTIVE);
+        if (candidate.isEmpty()) {
+            passwordEncoder.matches(rawPassword, DUMMY_PASSWORD_HASH);
+            log.warn("Login failed for email {}", email);
+            throw new InvalidCredentialsException();
+        }
+        UserAccount user = candidate.get();
 
         if (user.getPasswordHash() == null || !passwordEncoder.matches(rawPassword, user.getPasswordHash())) {
             log.warn("Login failed for email {}", email);
