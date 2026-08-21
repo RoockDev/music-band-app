@@ -8,7 +8,9 @@ spring:
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/banda}
     username: ${DB_USERNAME:banda}
-    password: ${DB_PASSWORD:banda}
+    # REQUIRED. A repository-known database password remains dangerous even for a local
+    # default because accidental non-loopback publication would immediately expose it.
+    password: ${DB_PASSWORD}
 
   jpa:
     hibernate:

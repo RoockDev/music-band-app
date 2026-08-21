@@ -4,9 +4,9 @@ services:
     environment:
       POSTGRES_DB: banda
       POSTGRES_USER: banda
-      POSTGRES_PASSWORD: banda
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in the ignored .env file}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - banda_postgres_data:/var/lib/postgresql/data
 
@@ -17,8 +17,8 @@ services:
   mailpit:
     image: axllent/mailpit:latest
     ports:
-      - "1025:1025"
-      - "8025:8025"
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
 
 volumes:
   banda_postgres_data:

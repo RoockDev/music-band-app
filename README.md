@@ -22,17 +22,41 @@ Run all commands from the repository root.
 
 ### 1. Start PostgreSQL and Mailpit
 
+Create a private, Git-ignored database password once, export it into the current shell, and
+then start the local services:
+
 ```bash
+if [ ! -f .env ]; then
+  umask 077
+  printf 'DB_PASSWORD=%s\n' "$(openssl rand -base64 24)" > .env
+fi
+set -a
+. ./.env
+set +a
 docker compose up -d postgres mailpit
 ```
 
-PostgreSQL listens on `localhost:5432`. Mailpit accepts SMTP on `localhost:1025` and exposes its inbox at <http://localhost:8025>.
+PostgreSQL listens only on `127.0.0.1:5432`. Mailpit accepts SMTP on
+`127.0.0.1:1025` and exposes its inbox at <http://127.0.0.1:8025>; none of these
+development ports are published to the LAN.
+
+#### Existing PostgreSQL volumes
+
+Changing `.env` does not rotate a database that was already initialized. Start an existing volume
+with its current password, rotate it interactively, and then store the new value in `.env`:
+
+```bash
+docker compose exec postgres psql -U banda -d banda -c '\password banda'
+```
 
 ### 2. Start the backend
 
 The backend fails fast when JWT and mail settings are missing. Plain HTTP development also requires a non-secure auth cookie.
 
 ```bash
+set -a
+. ./.env
+set +a
 export JWT_SECRET="$(openssl rand -base64 32)"
 export MAIL_HOST=localhost
 export MAIL_PORT=1025
@@ -42,7 +66,9 @@ export APP_SECURITY_COOKIE_SECURE=false
 mvn -f backend/pom.xml spring-boot:run
 ```
 
-The API starts at <http://localhost:8080>. Database defaults match `docker-compose.yml`; additional overrides are documented in `backend/src/main/resources/application.yml`.
+The API starts at <http://localhost:8080>. The database URL and username default to the local
+Compose service, while `DB_PASSWORD` is required. Additional overrides are documented in
+`backend/src/main/resources/application.yml`.
 
 Photographs and sheet music are stored by default in the stable user directory
 `${user.home}/.music-band-app/files` (normally `~/.music-band-app/files`). The backend creates
