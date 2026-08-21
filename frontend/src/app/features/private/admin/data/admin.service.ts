@@ -2,11 +2,16 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { Observable, switchMap } from 'rxjs';
 import { CsrfService } from '../../../../core/http/csrf.service';
+import { InternalEvent, SheetMusic } from '../../data/private-content.models';
 import {
+  Collection,
   CreateUserResult,
+  EventCreateMutation,
+  EventUpdateMutation,
   Group,
   GroupMember,
   GroupMutation,
+  SheetMusicUpload,
   UserAccount,
   UserMutation,
 } from './admin.models';
@@ -80,6 +85,59 @@ export class AdminService {
       .pipe(
         switchMap(() => this.http.delete<void>(`/api/groups/${groupId}/musicians/${musicianId}`)),
       );
+  }
+
+  getManagedEvents(): Observable<InternalEvent[]> {
+    return this.http.get<InternalEvent[]>('/api/events/admin');
+  }
+
+  createEvent(request: EventCreateMutation): Observable<InternalEvent> {
+    return this.csrf
+      .ensureToken()
+      .pipe(switchMap(() => this.http.post<InternalEvent>('/api/events', request)));
+  }
+
+  updateEvent(id: number, request: EventUpdateMutation): Observable<InternalEvent> {
+    return this.csrf
+      .ensureToken()
+      .pipe(switchMap(() => this.http.put<InternalEvent>(`/api/events/${id}`, request)));
+  }
+
+  cancelEvent(id: number): Observable<InternalEvent> {
+    return this.csrf
+      .ensureToken()
+      .pipe(switchMap(() => this.http.post<InternalEvent>(`/api/events/${id}/cancel`, null)));
+  }
+
+  getCollections(): Observable<Collection[]> {
+    return this.http.get<Collection[]>('/api/collections');
+  }
+
+  createCollection(request: Pick<Collection, 'name' | 'description'>): Observable<Collection> {
+    return this.csrf
+      .ensureToken()
+      .pipe(switchMap(() => this.http.post<Collection>('/api/collections', request)));
+  }
+
+  getManagedSheetMusic(): Observable<SheetMusic[]> {
+    return this.http.get<SheetMusic[]>('/api/sheet-music/admin');
+  }
+
+  uploadSheetMusic(request: SheetMusicUpload): Observable<SheetMusic> {
+    const form = new FormData();
+    form.append('title', request.title);
+    if (request.composer) {
+      form.append('composer', request.composer);
+    }
+    form.append('collectionId', String(request.collectionId));
+    form.append('allScope', String(request.allScope));
+    request.groupIds.forEach((id) => form.append('groupIds', String(id)));
+    request.musicianIds.forEach((id) => form.append('musicianIds', String(id)));
+    form.append('file', request.file);
+
+    return this.csrf
+      .ensureToken()
+      .pipe(switchMap(() => this.http.post<SheetMusic>('/api/sheet-music', form)));
   }
 }
 

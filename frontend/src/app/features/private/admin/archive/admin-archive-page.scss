@@ -1,0 +1,112 @@
+.admin-heading {
+  border-bottom: 1px solid var(--color-line);
+  display: grid;
+  gap: clamp(2rem, 5vw, 5rem);
+  grid-template-columns: minmax(0, 1fr) minmax(18rem, 1fr);
+  padding: clamp(2rem, 6vw, 6rem);
+}
+.admin-heading h1 {
+  font-size: clamp(3.5rem, 8vw, 8rem);
+  line-height: 0.85;
+  margin: 0.6rem 0 0;
+}
+.admin-heading > p {
+  align-self: end;
+  color: var(--color-muted);
+  line-height: 1.7;
+}
+.work-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+.work-grid > section {
+  border-bottom: 1px solid var(--color-line);
+  padding: clamp(2rem, 5vw, 5rem);
+}
+.work-grid > section + section {
+  background: var(--color-paper-deep);
+  border-left: 1px solid var(--color-line);
+}
+.work-grid h2 {
+  font-size: clamp(2rem, 4vw, 4rem);
+  line-height: 1;
+  margin: 0.5rem 0;
+}
+.constraint {
+  color: var(--color-muted);
+  line-height: 1.6;
+  min-height: 3.2rem;
+}
+.work-grid form {
+  display: grid;
+  gap: 1rem;
+  margin-top: 2rem;
+}
+.field select {
+  background: var(--color-paper);
+  border: 1px solid var(--color-ink);
+  border-radius: 0;
+  min-height: 3rem;
+  padding: 0.75rem;
+}
+.field small {
+  color: var(--color-muted);
+}
+.check-field {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+}
+.check-field input {
+  height: 1.2rem;
+  width: 1.2rem;
+}
+.scope-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 1fr 1fr;
+}
+.score-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 clamp(1rem, 6vw, 6rem) 5rem;
+}
+.score-list li {
+  align-items: center;
+  border-bottom: 1px solid var(--color-line);
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: 5rem minmax(0, 1fr);
+  padding-block: 2rem;
+}
+.score-list > li > span {
+  color: var(--color-accent);
+  font-family: var(--font-display);
+  font-size: 4rem;
+}
+.record-meta {
+  color: var(--color-accent-strong) !important;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.score-list h2 {
+  font-size: clamp(2rem, 4vw, 3.5rem);
+  line-height: 1;
+  margin: 0.3rem 0;
+}
+.score-list p {
+  color: var(--color-muted);
+  margin: 0.25rem 0;
+}
+@media (max-width: 800px) {
+  .admin-heading,
+  .work-grid,
+  .scope-grid {
+    grid-template-columns: 1fr;
+  }
+  .work-grid > section + section {
+    border-left: 0;
+  }
+}

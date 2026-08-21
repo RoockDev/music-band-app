@@ -32,6 +32,16 @@ const adminGroups = () =>
     (module) => module.AdminGroupsPage,
   );
 
+const adminCalendar = () =>
+  import('./features/private/admin/calendar/admin-calendar-page').then(
+    (module) => module.AdminCalendarPage,
+  );
+
+const adminArchive = () =>
+  import('./features/private/admin/archive/admin-archive-page').then(
+    (module) => module.AdminArchivePage,
+  );
+
 export const routes: Routes = [
   {
     path: 'musico',
@@ -54,6 +64,8 @@ export const routes: Routes = [
       { path: '', title: 'Administración', loadComponent: privateHome },
       { path: 'usuarios', title: 'Gestión de usuarios', loadComponent: adminUsers },
       { path: 'grupos', title: 'Gestión de grupos', loadComponent: adminGroups },
+      { path: 'calendario', title: 'Gestión del calendario', loadComponent: adminCalendar },
+      { path: 'archivo', title: 'Archivo de partituras', loadComponent: adminArchive },
     ],
   },
   {

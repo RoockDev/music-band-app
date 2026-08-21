@@ -1,0 +1,122 @@
+<header class="admin-heading">
+  <div>
+    <p class="eyebrow">Administración</p>
+    <h1>Calendario</h1>
+  </div>
+  <p>
+    Crea eventos internos o públicos, define su alcance inicial y cancélalos sin borrar su historia.
+  </p>
+</header>
+
+<section class="admin-form" aria-labelledby="event-form-title">
+  <div>
+    <p class="section-index">{{ editingId() === null ? 'Nuevo evento' : 'Edición' }}</p>
+    <h2 id="event-form-title">
+      {{ editingId() === null ? 'Programar una fecha' : 'Actualizar el evento' }}
+    </h2>
+  </div>
+  <form [formGroup]="eventForm" (ngSubmit)="submit()">
+    <div class="field">
+      <label for="event-title">Título</label><input id="event-title" formControlName="title" />
+    </div>
+    <div class="field">
+      <label for="event-description">Descripción</label
+      ><textarea id="event-description" formControlName="description"></textarea>
+    </div>
+    <div class="field">
+      <label for="event-location">Lugar</label
+      ><input id="event-location" formControlName="location" />
+    </div>
+    <div class="field">
+      <label for="event-start">Fecha y hora</label
+      ><input id="event-start" type="datetime-local" formControlName="startsAt" />
+    </div>
+    <div class="checks">
+      <label
+        ><input type="checkbox" formControlName="isPublic" /> Visible en la agenda pública</label
+      >
+      <label><input type="checkbox" formControlName="allScope" /> Visible para toda la banda</label>
+    </div>
+    @if (editingId() === null) {
+      <div class="scope-grid">
+        <div class="field">
+          <label for="event-groups">IDs de grupos</label
+          ><input id="event-groups" formControlName="groupIds" placeholder="2, 5" />
+        </div>
+        <div class="field">
+          <label for="event-musicians">IDs de músicos</label
+          ><input id="event-musicians" formControlName="musicianIds" placeholder="7, 9" />
+        </div>
+      </div>
+      <small
+        >Los alcances por grupo y músico se fijan al crear el evento; el backend no permite
+        editarlos después.</small
+      >
+    } @else {
+      <p class="scope-note">
+        Puedes cambiar la visibilidad general, pero los grupos y músicos asignados al crear el
+        evento se conservan.
+      </p>
+    }
+    @if (formError()) {
+      <p class="form-message error" role="alert">{{ formError() }}</p>
+    }
+    <div class="form-actions">
+      <button class="button" type="submit" [disabled]="saving()">
+        {{ saving() ? 'Guardando…' : editingId() === null ? 'Crear evento' : 'Guardar cambios' }}
+      </button>
+      @if (editingId() !== null) {
+        <button class="button secondary" type="button" (click)="resetForm()">
+          Cancelar edición
+        </button>
+      }
+    </div>
+  </form>
+</section>
+
+@if (actionError()) {
+  <p class="form-message error page-message" role="alert">{{ actionError() }}</p>
+}
+@if (loading()) {
+  <app-page-state kind="loading" loadingText="Consultando el calendario completo…" />
+} @else if (failed()) {
+  <app-page-state
+    kind="error"
+    errorText="No se puede consultar el calendario. Comprueba que tengas permiso para gestionar eventos."
+    (retry)="load()"
+  />
+} @else if (events().length === 0) {
+  <app-page-state kind="empty" emptyText="Todavía no hay eventos programados." />
+} @else {
+  <ul class="event-list">
+    @for (event of events(); track event.id) {
+      <li [class.cancelled]="event.status === 'CANCELLED'">
+        <time [attr.datetime]="event.startsAt"
+          ><strong>{{ event.startsAt | date: 'dd' }}</strong
+          ><span>{{ event.startsAt | date: 'MMM · HH:mm' }}</span></time
+        >
+        <div>
+          <p class="record-meta">
+            ID {{ event.id }} · {{ event.isPublic ? 'Público' : 'Interno' }} ·
+            {{ event.allScope ? 'Toda la banda' : 'Alcance limitado' }}
+          </p>
+          <h2>{{ event.title }}</h2>
+          <p>{{ event.location || 'Lugar por confirmar' }}</p>
+        </div>
+        <div class="record-actions">
+          <button class="text-button" type="button" (click)="edit(event)">Editar</button>
+          @if (event.status !== 'CANCELLED') {
+            <button
+              class="text-button danger"
+              type="button"
+              (click)="cancel(event)"
+              [disabled]="actionId() !== null"
+            >
+              {{ actionId() === event.id ? 'Cancelando…' : 'Cancelar' }}
+            </button>
+          }
+        </div>
+      </li>
+    }
+  </ul>
+}

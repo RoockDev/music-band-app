@@ -1,0 +1,120 @@
+<header class="admin-heading">
+  <div>
+    <p class="eyebrow">Administración</p>
+    <h1>Archivo</h1>
+  </div>
+  <p>
+    Crea colecciones y publica partituras con acceso para toda la banda, grupos o músicos concretos.
+  </p>
+</header>
+
+<div class="work-grid">
+  <section aria-labelledby="collection-title">
+    <p class="section-index">Colecciones</p>
+    <h2 id="collection-title">Abrir una carpeta</h2>
+    <p class="constraint">
+      El contrato actual permite crear y listar colecciones, no renombrarlas ni eliminarlas.
+    </p>
+    <form [formGroup]="collectionForm" (ngSubmit)="createCollection()">
+      <div class="field">
+        <label for="collection-name">Nombre</label
+        ><input id="collection-name" formControlName="name" />
+      </div>
+      <div class="field">
+        <label for="collection-description">Descripción</label
+        ><textarea id="collection-description" formControlName="description"></textarea>
+      </div>
+      @if (collectionError()) {
+        <p class="form-message error" role="alert">{{ collectionError() }}</p>
+      }
+      <button class="button" type="submit" [disabled]="collectionSaving()">
+        {{ collectionSaving() ? 'Creando…' : 'Crear colección' }}
+      </button>
+    </form>
+  </section>
+  <section aria-labelledby="upload-title">
+    <p class="section-index">Nueva partitura</p>
+    <h2 id="upload-title">Subir material</h2>
+    <form [formGroup]="uploadForm" (ngSubmit)="upload()">
+      <div class="field">
+        <label for="score-title">Título</label><input id="score-title" formControlName="title" />
+      </div>
+      <div class="field">
+        <label for="score-composer">Compositor</label
+        ><input id="score-composer" formControlName="composer" />
+      </div>
+      <div class="field">
+        <label for="score-collection">Colección</label
+        ><select id="score-collection" formControlName="collectionId">
+          <option [ngValue]="0">Selecciona una colección</option>
+          @for (collection of collections(); track collection.id) {
+            <option [ngValue]="collection.id">{{ collection.name }}</option>
+          }
+        </select>
+      </div>
+      <div class="field">
+        <label for="score-file">Archivo</label
+        ><input
+          id="score-file"
+          type="file"
+          accept="application/pdf,image/png,image/jpeg"
+          (change)="chooseFile($event)"
+        /><small>PDF, PNG o JPEG · máximo 20 MB</small>
+      </div>
+      <label class="check-field"
+        ><input type="checkbox" formControlName="allScope" /> Disponible para toda la banda</label
+      >
+      <div class="scope-grid">
+        <div class="field">
+          <label for="score-groups">IDs de grupos</label
+          ><input id="score-groups" formControlName="groupIds" placeholder="2, 5" />
+        </div>
+        <div class="field">
+          <label for="score-musicians">IDs de músicos</label
+          ><input id="score-musicians" formControlName="musicianIds" placeholder="7, 9" />
+        </div>
+      </div>
+      @if (uploadError()) {
+        <p class="form-message error" role="alert">{{ uploadError() }}</p>
+      }
+      <button
+        class="button"
+        type="submit"
+        [disabled]="uploadSaving() || collections().length === 0"
+      >
+        {{ uploadSaving() ? 'Subiendo…' : 'Subir partitura' }}
+      </button>
+    </form>
+  </section>
+</div>
+
+@if (loading()) {
+  <app-page-state kind="loading" loadingText="Consultando el archivo completo…" />
+} @else if (failed()) {
+  <app-page-state
+    kind="error"
+    errorText="No se puede consultar el archivo. Comprueba que tengas permiso para gestionar partituras."
+    (retry)="load()"
+  />
+} @else if (scores().length === 0) {
+  <app-page-state kind="empty" emptyText="Todavía no hay partituras archivadas." />
+} @else {
+  <ul class="score-list">
+    @for (score of scores(); track score.id) {
+      <li>
+        <span aria-hidden="true">♪</span>
+        <div>
+          <p class="record-meta">
+            ID {{ score.id }} · {{ collectionName(score.collectionId) }} ·
+            {{ score.allScope ? 'Toda la banda' : 'Alcance limitado' }}
+          </p>
+          <h2>{{ score.title }}</h2>
+          <p>
+            {{ score.composer || 'Autoría no indicada' }} ·
+            {{ score.originalFilename || 'Archivo sin nombre' }}
+          </p>
+        </div>
+      </li>
+    }
+  </ul>
+}

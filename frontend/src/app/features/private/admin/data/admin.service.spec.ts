@@ -104,6 +104,70 @@ describe('AdminService', () => {
     expect(unassign.request.method).toBe('DELETE');
     unassign.flush(null);
   });
+
+  it('uses separate permission-gated management catalogs for events and sheet music', () => {
+    service.getManagedEvents().subscribe();
+    service.getCollections().subscribe();
+    service.getManagedSheetMusic().subscribe();
+
+    http.expectOne('/api/events/admin').flush([]);
+    http.expectOne('/api/collections').flush([]);
+    http.expectOne('/api/sheet-music/admin').flush([]);
+  });
+
+  it('serializes a sheet-music upload as multipart form data after CSRF bootstrap', () => {
+    const file = new File(['score'], 'suite.pdf', { type: 'application/pdf' });
+    service
+      .uploadSheetMusic({
+        title: 'Suite',
+        composer: 'Composer',
+        collectionId: 2,
+        allScope: false,
+        groupIds: [3, 4],
+        musicianIds: [8],
+        file,
+      })
+      .subscribe();
+
+    http.expectOne('/api/auth/csrf').flush('');
+    const request = http.expectOne('/api/sheet-music');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.body.get('title')).toBe('Suite');
+    expect(request.request.body.getAll('groupIds')).toEqual(['3', '4']);
+    expect(request.request.body.get('file')).toBe(file);
+    request.flush({ id: 10 });
+  });
+
+  it('uses the event lifecycle and collection creation contracts', () => {
+    const event = {
+      title: 'Rehearsal',
+      description: null,
+      location: 'Hall',
+      startsAt: '2026-09-01T18:00:00Z',
+      isPublic: false,
+      allScope: true,
+      groupIds: [],
+      musicianIds: [],
+    };
+    service.createEvent(event).subscribe();
+    http.expectOne('/api/auth/csrf').flush('');
+    const createEvent = http.expectOne('/api/events');
+    expect(createEvent.request.method).toBe('POST');
+    expect(createEvent.request.body).toEqual(event);
+    createEvent.flush({ id: 2 });
+
+    service.cancelEvent(2).subscribe();
+    http.expectOne('/api/auth/csrf').flush('');
+    const cancelEvent = http.expectOne('/api/events/2/cancel');
+    expect(cancelEvent.request.method).toBe('POST');
+    cancelEvent.flush({ id: 2, status: 'CANCELLED' });
+
+    service.createCollection({ name: 'Concerts', description: null }).subscribe();
+    http.expectOne('/api/auth/csrf').flush('');
+    const createCollection = http.expectOne('/api/collections');
+    expect(createCollection.request.method).toBe('POST');
+    createCollection.flush({ id: 3 });
+  });
 });
 
 describe('adminErrorMessage', () => {

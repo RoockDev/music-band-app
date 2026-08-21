@@ -1,0 +1,134 @@
+.admin-heading,
+.admin-form {
+  display: grid;
+  gap: clamp(2rem, 5vw, 5rem);
+  grid-template-columns: minmax(0, 1fr) minmax(18rem, 1fr);
+  padding: clamp(2rem, 6vw, 6rem);
+}
+.admin-heading {
+  border-bottom: 1px solid var(--color-line);
+}
+.admin-heading h1 {
+  font-size: clamp(3.5rem, 8vw, 8rem);
+  line-height: 0.85;
+  margin: 0.6rem 0 0;
+}
+.admin-heading > p {
+  align-self: end;
+  color: var(--color-muted);
+  line-height: 1.7;
+}
+.admin-form {
+  background: var(--color-paper-deep);
+  border-bottom: 1px solid var(--color-line);
+}
+.admin-form h2 {
+  font-size: clamp(2rem, 4vw, 4rem);
+  line-height: 1;
+  margin: 0.5rem 0;
+}
+.admin-form form {
+  display: grid;
+  gap: 1rem;
+}
+.scope-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 1fr 1fr;
+}
+.checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+.checks label {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+}
+.checks input {
+  height: 1.2rem;
+  width: 1.2rem;
+}
+.scope-note,
+.admin-form small {
+  color: var(--color-muted);
+  line-height: 1.5;
+}
+.form-actions,
+.record-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+.page-message {
+  margin-inline: clamp(1rem, 6vw, 6rem);
+}
+.event-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 clamp(1rem, 6vw, 6rem) 5rem;
+}
+.event-list li {
+  align-items: center;
+  border-bottom: 1px solid var(--color-line);
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: 7rem minmax(0, 1fr) auto;
+  padding-block: 2rem;
+}
+.event-list time {
+  display: grid;
+}
+.event-list time strong {
+  font-family: var(--font-display);
+  font-size: 3.5rem;
+  font-weight: 500;
+  line-height: 0.9;
+}
+.event-list time span,
+.record-meta {
+  color: var(--color-accent-strong);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.event-list h2 {
+  font-size: clamp(2rem, 4vw, 3.5rem);
+  line-height: 1;
+  margin: 0.3rem 0;
+}
+.event-list p {
+  color: var(--color-muted);
+  margin: 0.25rem 0;
+}
+.text-button {
+  background: transparent;
+  border: 0;
+  color: var(--color-ink);
+  cursor: pointer;
+  font-weight: 700;
+  padding: 0.7rem;
+  text-decoration: underline;
+}
+.text-button.danger {
+  color: var(--color-danger);
+}
+.text-button:disabled {
+  opacity: 0.45;
+}
+.cancelled {
+  opacity: 0.6;
+}
+.cancelled h2 {
+  text-decoration: line-through;
+}
+@media (max-width: 750px) {
+  .admin-heading,
+  .admin-form,
+  .event-list li,
+  .scope-grid {
+    grid-template-columns: 1fr;
+  }
+}

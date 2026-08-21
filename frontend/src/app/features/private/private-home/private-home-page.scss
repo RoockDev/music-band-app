@@ -62,6 +62,14 @@
   border-left: 0;
 }
 
+.action-grid a:nth-child(n + 3) {
+  border-top: 0;
+}
+
+.action-grid a:nth-child(odd) {
+  border-left: 1px solid var(--color-line);
+}
+
 .action-grid a:hover {
   background: var(--color-paper-deep);
 }

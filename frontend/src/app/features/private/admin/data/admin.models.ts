@@ -44,3 +44,34 @@ export interface GroupMember {
   email: string;
   role: UserRole;
 }
+
+export interface Collection {
+  id: number;
+  name: string;
+  description: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EventCreateMutation {
+  title: string;
+  description: string | null;
+  location: string | null;
+  startsAt: string;
+  isPublic: boolean;
+  allScope: boolean;
+  groupIds: number[];
+  musicianIds: number[];
+}
+
+export type EventUpdateMutation = Omit<EventCreateMutation, 'groupIds' | 'musicianIds'>;
+
+export interface SheetMusicUpload {
+  title: string;
+  composer: string | null;
+  collectionId: number;
+  allScope: boolean;
+  groupIds: number[];
+  musicianIds: number[];
+  file: File;
+}
