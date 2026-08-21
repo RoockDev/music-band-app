@@ -3,9 +3,12 @@ package com.banda.events;
 import com.banda.audit.AuditService;
 import com.banda.events.dto.CreateEventRequest;
 import com.banda.events.dto.UpdateEventRequest;
+import com.banda.groups.GroupRepository;
 import com.banda.security.Permission;
 import com.banda.security.PermissionService;
 import com.banda.users.UserAccount;
+import com.banda.users.UserAccountRepository;
+import com.banda.users.UserRole;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
@@ -14,7 +17,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Section 7 (Calendar/Events) use cases: admin-driven CRUD over {@link Event} plus
@@ -64,6 +69,8 @@ public class EventService {
     private final AuditService auditService;
     private final EventAccessService accessService;
     private final EventAccessGrantService accessGrantService;
+    private final GroupRepository groupRepository;
+    private final UserAccountRepository userAccountRepository;
     private final Clock clock;
 
     public EventService(EventRepository eventRepository,
@@ -71,24 +78,31 @@ public class EventService {
                          AuditService auditService,
                          EventAccessService accessService,
                          EventAccessGrantService accessGrantService,
+                         GroupRepository groupRepository,
+                         UserAccountRepository userAccountRepository,
                          Clock clock) {
         this.eventRepository = eventRepository;
         this.permissionService = permissionService;
         this.auditService = auditService;
         this.accessService = accessService;
         this.accessGrantService = accessGrantService;
+        this.groupRepository = groupRepository;
+        this.userAccountRepository = userAccountRepository;
         this.clock = clock;
     }
 
     public Event create(UserAccount actor, CreateEventRequest request) {
         permissionService.requirePermission(actor, Permission.MANAGE_EVENTS);
 
+        EventAccessGrantService.ResolvedEventScope scope = accessGrantService.resolveAccessScope(
+                request.groupIds(), request.musicianIds());
+
         Instant now = clock.instant();
         Event event = new Event(request.title(), request.description(), request.location(), request.startsAt(),
                 request.isPublic(), request.allScope(), now);
         Event saved = eventRepository.saveAndFlush(event);
 
-        accessGrantService.applyAccessScope(saved, request.groupIds(), request.musicianIds());
+        accessGrantService.synchronizeAccessScope(saved, scope);
 
         auditService.record(actor.getId(), "EVENT_CREATED", "Event", saved.getId(), "title=" + request.title());
         log.info("Event created: {}", saved.getId());
@@ -104,9 +118,19 @@ public class EventService {
     }
 
     @Transactional(readOnly = true)
-    public List<Event> listManaged(UserAccount actor) {
+    public List<ManagedEvent> listManaged(UserAccount actor) {
         permissionService.requirePermission(actor, Permission.MANAGE_EVENTS);
-        return eventRepository.findAll();
+        return eventRepository.findAll().stream()
+                .map(event -> new ManagedEvent(event, accessGrantService.getAccessScope(event)))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public EventTargetCatalog listTargets(UserAccount actor) {
+        permissionService.requirePermission(actor, Permission.MANAGE_EVENTS);
+        return new EventTargetCatalog(groupRepository.findAll(), userAccountRepository.findAll().stream()
+                .filter(account -> account.getRole() == UserRole.MUSICIAN)
+                .toList());
     }
 
     @Transactional(readOnly = true)
@@ -122,6 +146,22 @@ public class EventService {
         permissionService.requirePermission(actor, Permission.MANAGE_EVENTS);
         Event event = requireEvent(eventId);
 
+        requireVersion(event.getVersion(), request.version());
+        EventAccessGrantService.ResolvedEventScope resolvedScope = accessGrantService.resolveAccessScope(
+                request.groupIds(), request.musicianIds());
+        EventAccessScope beforeScope = accessGrantService.getAccessScope(event);
+        EventAccessScope afterScope = resolvedScope.toAccessScope();
+        boolean beforeAllScope = event.isAllScope();
+        List<String> changedFields = changedFields(event, request, beforeScope, afterScope);
+        if (changedFields.isEmpty()) {
+            return event;
+        }
+
+        // Scope rows are synchronized before dirtying the versioned event entity. Bulk join-row
+        // deletes may trigger an automatic JPA flush; keeping the event clean until afterwards
+        // ensures every optimistic-lock failure is translated by saveWithOptimisticLockHandling.
+        accessGrantService.synchronizeAccessScope(event, resolvedScope);
+
         event.setTitle(request.title());
         event.setDescription(request.description());
         event.setLocation(request.location());
@@ -132,7 +172,8 @@ public class EventService {
 
         saveWithOptimisticLockHandling(event);
 
-        auditService.record(actor.getId(), "EVENT_UPDATED", "Event", eventId, "title=" + request.title());
+        auditService.record(actor.getId(), "EVENT_UPDATED", "Event", eventId,
+                auditDetails(changedFields, beforeAllScope, event.isAllScope(), beforeScope, afterScope));
         log.info("Event updated: {}", eventId);
 
         return event;
@@ -168,5 +209,37 @@ public class EventService {
 
     private Event requireEvent(Long eventId) {
         return eventRepository.findById(eventId).orElseThrow(() -> new EventNotFoundException(eventId));
+    }
+
+    private void requireVersion(Long current, Long requested) {
+        if (!Objects.equals(current, requested)) {
+            throw new ConcurrentEventModificationException();
+        }
+    }
+
+    private List<String> changedFields(Event event, UpdateEventRequest request,
+                                       EventAccessScope beforeScope, EventAccessScope afterScope) {
+        List<String> changed = new ArrayList<>();
+        if (!Objects.equals(event.getTitle(), request.title())) changed.add("title");
+        if (!Objects.equals(event.getDescription(), request.description())) changed.add("description");
+        if (!Objects.equals(event.getLocation(), request.location())) changed.add("location");
+        if (!Objects.equals(event.getStartsAt(), request.startsAt())) changed.add("startsAt");
+        if (event.isPublic() != request.isPublic()) changed.add("public");
+        if (event.isAllScope() != request.allScope()
+                || !Objects.equals(beforeScope.groupIds(), afterScope.groupIds())
+                || !Objects.equals(beforeScope.musicianIds(), afterScope.musicianIds())) {
+            changed.add("scope");
+        }
+        return changed;
+    }
+
+    private String auditDetails(List<String> fields, boolean beforeAllScope, boolean afterAllScope,
+                                EventAccessScope before, EventAccessScope after) {
+        String details = "changed=" + String.join(",", fields)
+                + ";beforeScope={all=" + beforeAllScope + ",groups=" + before.groupIds().size()
+                + ",musicians=" + before.musicianIds().size() + "}"
+                + ";afterScope={all=" + afterAllScope + ",groups=" + after.groupIds().size() + ",musicians="
+                + after.musicianIds().size() + "}";
+        return details.length() <= 255 ? details : details.substring(0, 255);
     }
 }

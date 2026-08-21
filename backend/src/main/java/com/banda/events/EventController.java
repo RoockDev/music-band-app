@@ -1,5 +1,7 @@
 package com.banda.events;
 
+import com.banda.events.dto.AdminEventResponse;
+import com.banda.events.dto.AdminEventTargetsResponse;
 import com.banda.events.dto.CreateEventRequest;
 import com.banda.events.dto.EventResponse;
 import com.banda.events.dto.UpdateEventRequest;
@@ -67,8 +69,14 @@ public class EventController {
 
     /** Complete management catalog for admins holding {@code MANAGE_EVENTS}. */
     @GetMapping("/admin")
-    public List<EventResponse> listManaged(@AuthenticationPrincipal UserAccount actor) {
-        return eventService.listManaged(actor).stream().map(EventResponse::from).toList();
+    public List<AdminEventResponse> listManaged(@AuthenticationPrincipal UserAccount actor) {
+        return eventService.listManaged(actor).stream().map(AdminEventResponse::from).toList();
+    }
+
+    /** Valid scope targets for the event editor, without coupling it to other admin permissions. */
+    @GetMapping("/admin/targets")
+    public AdminEventTargetsResponse listTargets(@AuthenticationPrincipal UserAccount actor) {
+        return AdminEventTargetsResponse.from(eventService.listTargets(actor));
     }
 
     /** IDOR-safe single fetch: {@link EventService#get} throws the exact same 404

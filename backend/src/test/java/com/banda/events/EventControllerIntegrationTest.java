@@ -32,6 +32,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -76,6 +77,9 @@ class EventControllerIntegrationTest extends IntegrationTestBase {
 
     @Autowired
     private EventGroupAccessRepository eventGroupAccessRepository;
+
+    @Autowired
+    private EventMusicianAccessRepository eventMusicianAccessRepository;
 
     @Autowired
     private PasswordEncoder passwordEncoder;
@@ -155,6 +159,11 @@ class EventControllerIntegrationTest extends IntegrationTestBase {
                         .contentType("application/json")
                         .content("{\"title\":\"Blocked Event\",\"startsAt\":\"2026-06-01T19:00:00Z\","
                                 + "\"isPublic\":false,\"allScope\":false}"))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(get("/api/events/admin/targets")
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue()))
                 .andExpect(status().isForbidden());
 
         assertThat(eventRepository.findAll().stream().anyMatch(e -> e.getTitle().equals("Blocked Event"))).isFalse();
@@ -388,7 +397,8 @@ class EventControllerIntegrationTest extends IntegrationTestBase {
                         .header("X-XSRF-TOKEN", csrf.getValue())
                         .contentType("application/json")
                         .content("{\"title\":\"Renamed\",\"startsAt\":\"2026-06-01T19:00:00Z\","
-                                + "\"isPublic\":true,\"allScope\":true}"))
+                                + "\"isPublic\":true,\"allScope\":true,\"groupIds\":[],\"musicianIds\":[],"
+                                + "\"version\":" + target.getVersion() + "}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.title").value("Renamed"));
 
@@ -420,7 +430,8 @@ class EventControllerIntegrationTest extends IntegrationTestBase {
                         .header("X-XSRF-TOKEN", csrf.getValue())
                         .contentType("application/json")
                         .content("{\"title\":\"Hijacked\",\"startsAt\":\"2026-06-01T19:00:00Z\","
-                                + "\"isPublic\":false,\"allScope\":true}"))
+                                + "\"isPublic\":false,\"allScope\":true,\"groupIds\":[],\"musicianIds\":[],"
+                                + "\"version\":" + target.getVersion() + "}"))
                 .andExpect(status().isForbidden());
 
         assertThat(eventRepository.findById(target.getId()).orElseThrow().getTitle()).isEqualTo("Untouchable Event");
@@ -439,8 +450,199 @@ class EventControllerIntegrationTest extends IntegrationTestBase {
                         .header("X-XSRF-TOKEN", csrf.getValue())
                         .contentType("application/json")
                         .content("{\"title\":\"Doesn't matter\",\"startsAt\":\"2026-06-01T19:00:00Z\","
-                                + "\"isPublic\":false,\"allScope\":false}"))
+                                + "\"isPublic\":false,\"allScope\":false,\"groupIds\":[],\"musicianIds\":[],"
+                                + "\"version\":0}"))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void adminCatalogExposesCompleteScopeAndTargetsWithoutLeakingThemToMusicianResponses() throws Exception {
+        UserAccount admin = persistActive("admin-scope-catalog@example.com", "AdminPass1!", UserRole.ADMIN);
+        adminPermissionRepository.saveAndFlush(new AdminPermission(admin, Permission.MANAGE_EVENTS));
+        UserAccount musician = persistActive("catalog-musician@example.com", "MusicianPass1!", UserRole.MUSICIAN);
+        Group group = groupRepository.saveAndFlush(new Group("Catalog Group", null, FIXED_NOW));
+        Event event = eventRepository.saveAndFlush(new Event("Catalog Scope", null, null, FIXED_NOW,
+                false, false, FIXED_NOW));
+        eventGroupAccessRepository.saveAndFlush(new EventGroupAccess(event, group));
+        eventMusicianAccessRepository.saveAndFlush(new EventMusicianAccess(event, musician));
+
+        Cookie adminCsrf = fetchCsrfCookie();
+        Cookie adminToken = loginAndGetAccessTokenCookie("admin-scope-catalog@example.com", "AdminPass1!", adminCsrf);
+        MvcResult catalogResult = mockMvc.perform(get("/api/events/admin")
+                        .cookie(adminCsrf, adminToken)
+                        .header("X-XSRF-TOKEN", adminCsrf.getValue()))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        List<Map<String, Object>> matches = JsonPath.read(catalogResult.getResponse().getContentAsString(),
+                "$[?(@.id == " + event.getId() + ")]");
+        assertThat(matches).hasSize(1);
+        assertThat(matches.getFirst().get("groupIds")).isEqualTo(List.of(group.getId().intValue()));
+        assertThat(matches.getFirst().get("musicianIds")).isEqualTo(List.of(musician.getId().intValue()));
+        assertThat(matches.getFirst().get("version")).isEqualTo(event.getVersion().intValue());
+
+        mockMvc.perform(get("/api/events/admin/targets")
+                        .cookie(adminCsrf, adminToken)
+                        .header("X-XSRF-TOKEN", adminCsrf.getValue()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.groups[?(@.id == " + group.getId() + ")].label").value("Catalog Group"))
+                .andExpect(jsonPath("$.musicians[?(@.id == " + musician.getId() + ")].label")
+                        .value("catalog-musician@example.com"))
+                .andExpect(jsonPath("$.musicians[?(@.id == " + admin.getId() + ")]").doesNotExist());
+
+        Cookie musicianCsrf = fetchCsrfCookie();
+        Cookie musicianToken = loginAndGetAccessTokenCookie("catalog-musician@example.com", "MusicianPass1!", musicianCsrf);
+        mockMvc.perform(get("/api/events/" + event.getId())
+                        .cookie(musicianCsrf, musicianToken)
+                        .header("X-XSRF-TOKEN", musicianCsrf.getValue()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.groupIds").doesNotExist())
+                .andExpect(jsonPath("$.musicianIds").doesNotExist())
+                .andExpect(jsonPath("$.version").doesNotExist());
+    }
+
+    @Test
+    void replacingScopeImmediatelyRemovesAndGrantsScopedAccessWithDeduplicationAndIdorSafety() throws Exception {
+        UserAccount admin = persistActive("admin-replace-scope@example.com", "AdminPass1!", UserRole.ADMIN);
+        adminPermissionRepository.saveAndFlush(new AdminPermission(admin, Permission.MANAGE_EVENTS));
+        UserAccount removed = persistActive("removed-from-event@example.com", "MusicianPass1!", UserRole.MUSICIAN);
+        UserAccount added = persistActive("added-to-event@example.com", "MusicianPass1!", UserRole.MUSICIAN);
+        Event event = eventRepository.saveAndFlush(new Event("Scope Transfer", null, "Hall", FIXED_NOW,
+                false, false, FIXED_NOW));
+        eventMusicianAccessRepository.saveAndFlush(new EventMusicianAccess(event, removed));
+
+        Cookie adminCsrf = fetchCsrfCookie();
+        Cookie adminToken = loginAndGetAccessTokenCookie("admin-replace-scope@example.com", "AdminPass1!", adminCsrf);
+        mockMvc.perform(put("/api/events/" + event.getId())
+                        .cookie(adminCsrf, adminToken)
+                        .header("X-XSRF-TOKEN", adminCsrf.getValue())
+                        .contentType("application/json")
+                        .content("{\"title\":\"Scope Transfer\",\"location\":\"Hall\","
+                                + "\"startsAt\":\"2026-01-01T00:00:00Z\",\"isPublic\":false,"
+                                + "\"allScope\":false,\"groupIds\":[],\"musicianIds\":[" + added.getId()
+                                + "," + added.getId() + "],\"version\":" + event.getVersion() + "}"))
+                .andExpect(status().isOk());
+
+        Event reloaded = eventRepository.findById(event.getId()).orElseThrow();
+        assertThat(eventMusicianAccessRepository.findByEvent(reloaded))
+                .extracting(access -> access.getMusician().getId())
+                .containsExactly(added.getId());
+
+        Cookie removedCsrf = fetchCsrfCookie();
+        Cookie removedToken = loginAndGetAccessTokenCookie("removed-from-event@example.com", "MusicianPass1!", removedCsrf);
+        mockMvc.perform(get("/api/events/" + event.getId())
+                        .cookie(removedCsrf, removedToken)
+                        .header("X-XSRF-TOKEN", removedCsrf.getValue()))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/events")
+                        .cookie(removedCsrf, removedToken)
+                        .header("X-XSRF-TOKEN", removedCsrf.getValue()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.id == " + event.getId() + ")]").doesNotExist());
+
+        Cookie addedCsrf = fetchCsrfCookie();
+        Cookie addedToken = loginAndGetAccessTokenCookie("added-to-event@example.com", "MusicianPass1!", addedCsrf);
+        mockMvc.perform(get("/api/events/" + event.getId())
+                        .cookie(addedCsrf, addedToken)
+                        .header("X-XSRF-TOKEN", addedCsrf.getValue()))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/events")
+                        .cookie(addedCsrf, addedToken)
+                        .header("X-XSRF-TOKEN", addedCsrf.getValue()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.id == " + event.getId() + ")]").exists());
+
+        AuditLog audit = auditLogRepository
+                .findByEntityTypeAndEntityIdOrderByTimestampDescIdDesc("Event", event.getId()).getFirst();
+        assertThat(audit.getDetails()).contains("changed=scope", "beforeScope={all=false,groups=0,musicians=1}",
+                "afterScope={all=false,groups=0,musicians=1}");
+    }
+
+    @Test
+    void invalidOrAmbiguousScopeUpdatesFailWithoutPartialMetadataOrGrantChanges() throws Exception {
+        UserAccount admin = persistActive("admin-invalid-scope@example.com", "AdminPass1!", UserRole.ADMIN);
+        adminPermissionRepository.saveAndFlush(new AdminPermission(admin, Permission.MANAGE_EVENTS));
+        UserAccount musician = persistActive("stable-scope@example.com", "MusicianPass1!", UserRole.MUSICIAN);
+        Event event = eventRepository.saveAndFlush(new Event("Stable Event", null, null, FIXED_NOW,
+                false, false, FIXED_NOW));
+        eventMusicianAccessRepository.saveAndFlush(new EventMusicianAccess(event, musician));
+
+        Cookie csrf = fetchCsrfCookie();
+        Cookie token = loginAndGetAccessTokenCookie("admin-invalid-scope@example.com", "AdminPass1!", csrf);
+        String base = "{\"title\":\"Should Roll Back\",\"startsAt\":\"2026-01-01T00:00:00Z\","
+                + "\"isPublic\":false,\"allScope\":false,\"groupIds\":[999999],\"musicianIds\":["
+                + musician.getId() + "],\"version\":" + event.getVersion() + "}";
+        mockMvc.perform(put("/api/events/" + event.getId())
+                        .cookie(csrf, token)
+                        .header("X-XSRF-TOKEN", csrf.getValue())
+                        .contentType("application/json")
+                        .content(base))
+                .andExpect(status().isNotFound());
+
+        Event unchanged = eventRepository.findById(event.getId()).orElseThrow();
+        assertThat(unchanged.getTitle()).isEqualTo("Stable Event");
+        assertThat(eventMusicianAccessRepository.findByEvent(unchanged))
+                .extracting(access -> access.getMusician().getId())
+                .containsExactly(musician.getId());
+        assertThat(auditLogRepository.findByEntityTypeAndEntityIdOrderByTimestampDescIdDesc("Event", event.getId()))
+                .isEmpty();
+
+        mockMvc.perform(put("/api/events/" + event.getId())
+                        .cookie(csrf, token)
+                        .header("X-XSRF-TOKEN", csrf.getValue())
+                        .contentType("application/json")
+                        .content("{\"title\":\"Invalid Global\",\"startsAt\":\"2026-01-01T00:00:00Z\","
+                                + "\"isPublic\":false,\"allScope\":true,\"groupIds\":[],\"musicianIds\":["
+                                + musician.getId() + "],\"version\":" + event.getVersion() + "}"))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(post("/api/events")
+                        .cookie(csrf, token)
+                        .header("X-XSRF-TOKEN", csrf.getValue())
+                        .contentType("application/json")
+                        .content("{\"title\":\"Invalid Create Scope\",\"startsAt\":\"2026-01-01T00:00:00Z\","
+                                + "\"isPublic\":false,\"allScope\":true,\"groupIds\":[],\"musicianIds\":["
+                                + musician.getId() + "]}"))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(put("/api/events/" + event.getId())
+                        .cookie(csrf, token)
+                        .header("X-XSRF-TOKEN", csrf.getValue())
+                        .contentType("application/json")
+                        .content("{\"title\":\"Missing Scope\",\"startsAt\":\"2026-01-01T00:00:00Z\","
+                                + "\"isPublic\":false,\"allScope\":false}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void staleVersionConflictsWhileAnExactReplacementIsAnUnauditedNoOp() throws Exception {
+        UserAccount admin = persistActive("admin-event-version@example.com", "AdminPass1!", UserRole.ADMIN);
+        adminPermissionRepository.saveAndFlush(new AdminPermission(admin, Permission.MANAGE_EVENTS));
+        Event event = eventRepository.saveAndFlush(new Event("Versioned Event", null, null, FIXED_NOW,
+                false, false, FIXED_NOW));
+
+        Cookie csrf = fetchCsrfCookie();
+        Cookie token = loginAndGetAccessTokenCookie("admin-event-version@example.com", "AdminPass1!", csrf);
+        String payloadPrefix = "{\"title\":\"Versioned Event\",\"startsAt\":\"2026-01-01T00:00:00Z\","
+                + "\"isPublic\":false,\"allScope\":false,\"groupIds\":[],\"musicianIds\":[],\"version\":";
+        mockMvc.perform(put("/api/events/" + event.getId())
+                        .cookie(csrf, token)
+                        .header("X-XSRF-TOKEN", csrf.getValue())
+                        .contentType("application/json")
+                        .content(payloadPrefix + (event.getVersion() + 1) + "}"))
+                .andExpect(status().isConflict());
+
+        mockMvc.perform(put("/api/events/" + event.getId())
+                        .cookie(csrf, token)
+                        .header("X-XSRF-TOKEN", csrf.getValue())
+                        .contentType("application/json")
+                        .content(payloadPrefix + event.getVersion() + "}"))
+                .andExpect(status().isOk());
+
+        Event unchanged = eventRepository.findById(event.getId()).orElseThrow();
+        assertThat(unchanged.getVersion()).isEqualTo(event.getVersion());
+        assertThat(auditLogRepository.findByEntityTypeAndEntityIdOrderByTimestampDescIdDesc("Event", event.getId()))
+                .isEmpty();
     }
 
     // ---- cancel() -- the core deliverable: non-destructive cancellation ----

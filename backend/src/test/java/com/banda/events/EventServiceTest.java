@@ -3,10 +3,12 @@ package com.banda.events;
 import com.banda.audit.AuditService;
 import com.banda.events.dto.CreateEventRequest;
 import com.banda.events.dto.UpdateEventRequest;
+import com.banda.groups.GroupRepository;
 import com.banda.security.Permission;
 import com.banda.security.PermissionDeniedException;
 import com.banda.security.PermissionService;
 import com.banda.users.UserAccount;
+import com.banda.users.UserAccountRepository;
 import com.banda.users.UserRole;
 import com.banda.users.UserStatus;
 import org.junit.jupiter.api.BeforeEach;
@@ -51,6 +53,8 @@ class EventServiceTest {
     private AuditService auditService;
     private EventAccessService accessService;
     private EventAccessGrantService accessGrantService;
+    private GroupRepository groupRepository;
+    private UserAccountRepository userAccountRepository;
     private EventService eventService;
 
     @BeforeEach
@@ -60,10 +64,12 @@ class EventServiceTest {
         auditService = mock(AuditService.class);
         accessService = mock(EventAccessService.class);
         accessGrantService = mock(EventAccessGrantService.class);
+        groupRepository = mock(GroupRepository.class);
+        userAccountRepository = mock(UserAccountRepository.class);
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
 
         eventService = new EventService(eventRepository, permissionService, auditService,
-                accessService, accessGrantService, clock);
+                accessService, accessGrantService, groupRepository, userAccountRepository, clock);
 
         when(eventRepository.saveAndFlush(any(Event.class))).thenAnswer(invocation -> invocation.getArgument(0));
     }
@@ -79,6 +85,7 @@ class EventServiceTest {
     private Event persistedEvent(Long id, boolean isPublic, boolean allScope) {
         Event event = new Event("Event " + id, null, null, NOW, isPublic, allScope, NOW);
         ReflectionTestUtils.setField(event, "id", id);
+        ReflectionTestUtils.setField(event, "version", 0L);
         return event;
     }
 
@@ -121,23 +128,26 @@ class EventServiceTest {
         UserAccount actor = adminActor();
         CreateEventRequest request = new CreateEventRequest("Title", null, null, NOW, false, false,
                 List.of(5L), List.of(7L));
+        EventAccessGrantService.ResolvedEventScope scope = resolvedScope(List.of(5L), List.of(7L));
+        when(accessGrantService.resolveAccessScope(List.of(5L), List.of(7L))).thenReturn(scope);
 
         Event created = eventService.create(actor, request);
 
-        verify(accessGrantService).applyAccessScope(created, List.of(5L), List.of(7L));
+        verify(accessGrantService).synchronizeAccessScope(created, scope);
     }
 
     @Test
     void createOnAFailedAccessScopeApplicationPropagatesTheExceptionAndNeverAudits() {
         UserAccount actor = adminActor();
-        doThrow(new GroupNotFoundException(999L)).when(accessGrantService)
-                .applyAccessScope(any(Event.class), eq(List.of(999L)), any());
+        when(accessGrantService.resolveAccessScope(eq(List.of(999L)), any()))
+                .thenThrow(new GroupNotFoundException(999L));
         CreateEventRequest request = new CreateEventRequest("Title", null, null, NOW, false, false,
                 List.of(999L), null);
 
         assertThatThrownBy(() -> eventService.create(actor, request))
                 .isInstanceOf(GroupNotFoundException.class);
 
+        verifyNoInteractions(eventRepository);
         verifyNoInteractions(auditService);
     }
 
@@ -190,11 +200,14 @@ class EventServiceTest {
         Event musicianScoped = persistedEvent(5L, false, false);
         when(eventRepository.findAll()).thenReturn(List.of(groupScoped, musicianScoped));
 
-        List<Event> result = eventService.listManaged(actor);
+        when(accessGrantService.getAccessScope(groupScoped)).thenReturn(new EventAccessScope(List.of(8L), List.of()));
+        when(accessGrantService.getAccessScope(musicianScoped)).thenReturn(new EventAccessScope(List.of(), List.of(9L)));
+
+        List<ManagedEvent> result = eventService.listManaged(actor);
 
         verify(permissionService).requirePermission(actor, Permission.MANAGE_EVENTS);
         verifyNoInteractions(accessService);
-        assertThat(result).containsExactly(groupScoped, musicianScoped);
+        assertThat(result).extracting(ManagedEvent::event).containsExactly(groupScoped, musicianScoped);
     }
 
     @Test
@@ -251,7 +264,8 @@ class EventServiceTest {
         UserAccount actor = adminActor();
         doThrow(new PermissionDeniedException(Permission.MANAGE_EVENTS))
                 .when(permissionService).requirePermission(actor, Permission.MANAGE_EVENTS);
-        UpdateEventRequest request = new UpdateEventRequest("New Title", null, null, NOW, false, false);
+        UpdateEventRequest request = updateRequest("New Title", null, null, NOW, false, false,
+                List.of(), List.of(), 0L);
 
         assertThatThrownBy(() -> eventService.edit(actor, 1L, request))
                 .isInstanceOf(PermissionDeniedException.class);
@@ -264,7 +278,11 @@ class EventServiceTest {
         UserAccount actor = adminActor();
         Event event = persistedEvent(1L, false, false);
         when(eventRepository.findById(1L)).thenReturn(Optional.of(event));
-        UpdateEventRequest request = new UpdateEventRequest("Renamed", "New desc", "New place", NOW, true, true);
+        EventAccessGrantService.ResolvedEventScope scope = resolvedScope(List.of(), List.of());
+        when(accessGrantService.resolveAccessScope(List.of(), List.of())).thenReturn(scope);
+        when(accessGrantService.getAccessScope(event)).thenReturn(new EventAccessScope(List.of(), List.of()));
+        UpdateEventRequest request = updateRequest("Renamed", "New desc", "New place", NOW, true, true,
+                List.of(), List.of(), 0L);
 
         Event updated = eventService.edit(actor, 1L, request);
 
@@ -280,7 +298,8 @@ class EventServiceTest {
     void editOfAnUnknownEventThrowsEventNotFoundException() {
         UserAccount actor = adminActor();
         when(eventRepository.findById(404L)).thenReturn(Optional.empty());
-        UpdateEventRequest request = new UpdateEventRequest("Title", null, null, NOW, false, false);
+        UpdateEventRequest request = updateRequest("Title", null, null, NOW, false, false,
+                List.of(), List.of(), 0L);
 
         assertThatThrownBy(() -> eventService.edit(actor, 404L, request))
                 .isInstanceOf(EventNotFoundException.class);
@@ -292,11 +311,50 @@ class EventServiceTest {
         Event event = persistedEvent(1L, false, false);
         when(eventRepository.findById(1L)).thenReturn(Optional.of(event));
         when(eventRepository.saveAndFlush(any(Event.class))).thenThrow(new ObjectOptimisticLockingFailureException(Event.class, 1L));
-        UpdateEventRequest request = new UpdateEventRequest("Title", null, null, NOW, false, false);
+        EventAccessGrantService.ResolvedEventScope scope = resolvedScope(List.of(), List.of());
+        when(accessGrantService.resolveAccessScope(List.of(), List.of())).thenReturn(scope);
+        when(accessGrantService.getAccessScope(event)).thenReturn(new EventAccessScope(List.of(), List.of()));
+        UpdateEventRequest request = updateRequest("Changed", null, null, NOW, false, false,
+                List.of(), List.of(), 0L);
 
         assertThatThrownBy(() -> eventService.edit(actor, 1L, request))
                 .isInstanceOf(ConcurrentEventModificationException.class);
 
+        verifyNoInteractions(auditService);
+    }
+
+    @Test
+    void editRejectsAStaleClientVersionBeforeResolvingOrChangingScope() {
+        UserAccount actor = adminActor();
+        Event event = persistedEvent(1L, false, false);
+        when(eventRepository.findById(1L)).thenReturn(Optional.of(event));
+        UpdateEventRequest request = updateRequest("Changed", null, null, NOW, false, false,
+                List.of(4L), List.of(), 99L);
+
+        assertThatThrownBy(() -> eventService.edit(actor, 1L, request))
+                .isInstanceOf(ConcurrentEventModificationException.class);
+
+        verify(accessGrantService, never()).resolveAccessScope(any(), any());
+        verify(eventRepository, never()).saveAndFlush(any());
+        verifyNoInteractions(auditService);
+    }
+
+    @Test
+    void editWithIdenticalMetadataAndScopeIsANoOpWithoutAuditOrVersionWrite() {
+        UserAccount actor = adminActor();
+        Event event = persistedEvent(1L, false, false);
+        when(eventRepository.findById(1L)).thenReturn(Optional.of(event));
+        EventAccessGrantService.ResolvedEventScope scope = resolvedScope(List.of(), List.of());
+        when(accessGrantService.resolveAccessScope(List.of(), List.of())).thenReturn(scope);
+        when(accessGrantService.getAccessScope(event)).thenReturn(new EventAccessScope(List.of(), List.of()));
+        UpdateEventRequest request = updateRequest(event.getTitle(), null, null, NOW, false, false,
+                List.of(), List.of(), 0L);
+
+        Event result = eventService.edit(actor, 1L, request);
+
+        assertThat(result).isSameAs(event);
+        verify(accessGrantService, never()).synchronizeAccessScope(any(), any());
+        verify(eventRepository, never()).saveAndFlush(any());
         verifyNoInteractions(auditService);
     }
 
@@ -365,5 +423,17 @@ class EventServiceTest {
                 .isInstanceOf(ConcurrentEventModificationException.class);
 
         verifyNoInteractions(auditService);
+    }
+
+    private UpdateEventRequest updateRequest(String title, String description, String location, Instant startsAt,
+                                             boolean isPublic, boolean allScope, List<Long> groupIds,
+                                             List<Long> musicianIds, Long version) {
+        return new UpdateEventRequest(title, description, location, startsAt, isPublic, allScope,
+                groupIds, musicianIds, version);
+    }
+
+    private EventAccessGrantService.ResolvedEventScope resolvedScope(List<Long> groupIds, List<Long> musicianIds) {
+        return new EventAccessGrantService.ResolvedEventScope(new java.util.LinkedHashMap<>(),
+                new java.util.LinkedHashMap<>());
     }
 }

@@ -7,7 +7,10 @@ import com.banda.users.UserAccountRepository;
 import com.banda.users.UserRole;
 import org.springframework.stereotype.Service;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Write-side counterpart to {@link EventAccessService} (which owns the read-side
@@ -54,22 +57,78 @@ public class EventAccessGrantService {
      * validation-exception type for what is, functionally, the exact same grant applied twice.
      */
     public void applyAccessScope(Event event, List<Long> groupIds, List<Long> musicianIds) {
-        if (groupIds != null) {
-            for (Long groupId : distinct(groupIds)) {
-                Group group = requireGroup(groupId);
-                eventGroupAccessRepository.saveAndFlush(new EventGroupAccess(event, group));
-            }
-        }
-        if (musicianIds != null) {
-            for (Long musicianId : distinct(musicianIds)) {
-                UserAccount musician = requireMusician(musicianId);
-                eventMusicianAccessRepository.saveAndFlush(new EventMusicianAccess(event, musician));
-            }
-        }
+        synchronizeAccessScope(event, resolveAccessScope(groupIds, musicianIds));
     }
 
-    private static List<Long> distinct(List<Long> ids) {
-        return ids.stream().distinct().toList();
+    /** Resolves and validates every target before any access row is changed. */
+    public ResolvedEventScope resolveAccessScope(List<Long> groupIds, List<Long> musicianIds) {
+        Map<Long, Group> groups = new LinkedHashMap<>();
+        for (Long groupId : safeDistinct(groupIds)) {
+            groups.put(groupId, requireGroup(groupId));
+        }
+
+        Map<Long, UserAccount> musicians = new LinkedHashMap<>();
+        for (Long musicianId : safeDistinct(musicianIds)) {
+            musicians.put(musicianId, requireMusician(musicianId));
+        }
+        return new ResolvedEventScope(groups, musicians);
+    }
+
+    /** Replaces grants as sets: retained rows stay, obsolete rows go, missing rows are added. */
+    public void synchronizeAccessScope(Event event, ResolvedEventScope requested) {
+        List<EventGroupAccess> currentGroups = eventGroupAccessRepository.findByEvent(event);
+        List<EventMusicianAccess> currentMusicians = eventMusicianAccessRepository.findByEvent(event);
+        if (currentGroups.isEmpty() && currentMusicians.isEmpty()
+                && requested.groups().isEmpty() && requested.musicians().isEmpty()) {
+            return;
+        }
+
+        Set<Long> requestedGroupIds = requested.groups().keySet();
+        eventGroupAccessRepository.deleteAllInBatch(currentGroups.stream()
+                .filter(access -> !requestedGroupIds.contains(access.getGroup().getId()))
+                .toList());
+        Set<Long> currentGroupIds = currentGroups.stream()
+                .map(access -> access.getGroup().getId())
+                .collect(java.util.stream.Collectors.toSet());
+        requested.groups().forEach((id, group) -> {
+            if (!currentGroupIds.contains(id)) {
+                eventGroupAccessRepository.save(new EventGroupAccess(event, group));
+            }
+        });
+
+        Set<Long> requestedMusicianIds = requested.musicians().keySet();
+        eventMusicianAccessRepository.deleteAllInBatch(currentMusicians.stream()
+                .filter(access -> !requestedMusicianIds.contains(access.getMusician().getId()))
+                .toList());
+        Set<Long> currentMusicianIds = currentMusicians.stream()
+                .map(access -> access.getMusician().getId())
+                .collect(java.util.stream.Collectors.toSet());
+        requested.musicians().forEach((id, musician) -> {
+            if (!currentMusicianIds.contains(id)) {
+                eventMusicianAccessRepository.save(new EventMusicianAccess(event, musician));
+            }
+        });
+
+        eventGroupAccessRepository.flush();
+        eventMusicianAccessRepository.flush();
+    }
+
+    public EventAccessScope getAccessScope(Event event) {
+        List<Long> groupIds = eventGroupAccessRepository.findByEvent(event).stream()
+                .map(access -> access.getGroup().getId())
+                .distinct()
+                .sorted()
+                .toList();
+        List<Long> musicianIds = eventMusicianAccessRepository.findByEvent(event).stream()
+                .map(access -> access.getMusician().getId())
+                .distinct()
+                .sorted()
+                .toList();
+        return new EventAccessScope(groupIds, musicianIds);
+    }
+
+    private static List<Long> safeDistinct(List<Long> ids) {
+        return ids == null ? List.of() : ids.stream().distinct().toList();
     }
 
     private Group requireGroup(Long groupId) {
@@ -85,5 +144,12 @@ public class EventAccessGrantService {
             throw new MusicianNotFoundException(musicianId);
         }
         return account;
+    }
+
+    public record ResolvedEventScope(Map<Long, Group> groups, Map<Long, UserAccount> musicians) {
+        public EventAccessScope toAccessScope() {
+            return new EventAccessScope(groups.keySet().stream().sorted().toList(),
+                    musicians.keySet().stream().sorted().toList());
+        }
     }
 }

@@ -53,6 +53,9 @@ class EventAccessGrantServiceTest {
         accessGrantService = new EventAccessGrantService(eventGroupAccessRepository,
                 eventMusicianAccessRepository, groupRepository, userAccountRepository);
 
+        when(eventGroupAccessRepository.findByEvent(any())).thenReturn(List.of());
+        when(eventMusicianAccessRepository.findByEvent(any())).thenReturn(List.of());
+
         event = new Event("Spring Concert", null, null, NOW, false, false, NOW);
     }
 
@@ -67,7 +70,7 @@ class EventAccessGrantServiceTest {
         accessGrantService.applyAccessScope(event, List.of(5L), null);
 
         ArgumentCaptor<EventGroupAccess> captor = ArgumentCaptor.forClass(EventGroupAccess.class);
-        verify(eventGroupAccessRepository).saveAndFlush(captor.capture());
+        verify(eventGroupAccessRepository).save(captor.capture());
         assertThat(captor.getValue().getGroup()).isSameAs(group);
     }
 
@@ -97,7 +100,7 @@ class EventAccessGrantServiceTest {
 
         accessGrantService.applyAccessScope(event, List.of(5L, 5L), null);
 
-        verify(eventGroupAccessRepository).saveAndFlush(any());
+        verify(eventGroupAccessRepository).save(any());
     }
 
     // ---- individual musician access scope ----
@@ -111,7 +114,7 @@ class EventAccessGrantServiceTest {
         accessGrantService.applyAccessScope(event, null, List.of(7L));
 
         ArgumentCaptor<EventMusicianAccess> captor = ArgumentCaptor.forClass(EventMusicianAccess.class);
-        verify(eventMusicianAccessRepository).saveAndFlush(captor.capture());
+        verify(eventMusicianAccessRepository).save(captor.capture());
         assertThat(captor.getValue().getMusician()).isSameAs(musician);
     }
 
@@ -133,7 +136,7 @@ class EventAccessGrantServiceTest {
 
         accessGrantService.applyAccessScope(event, null, List.of(7L, 7L));
 
-        verify(eventMusicianAccessRepository).saveAndFlush(any());
+        verify(eventMusicianAccessRepository).save(any());
     }
 
     @Test
@@ -145,7 +148,7 @@ class EventAccessGrantServiceTest {
         assertThatThrownBy(() -> accessGrantService.applyAccessScope(event, null, List.of(8L)))
                 .isInstanceOf(MusicianNotFoundException.class);
 
-        verify(eventMusicianAccessRepository, never()).saveAndFlush(any());
+        verify(eventMusicianAccessRepository, never()).save(any());
     }
 
     // ---- no-ops ----
@@ -154,6 +157,9 @@ class EventAccessGrantServiceTest {
     void nullGroupIdsAndMusicianIdsIsANoOp() {
         accessGrantService.applyAccessScope(event, null, null);
 
-        verifyNoInteractions(eventGroupAccessRepository, eventMusicianAccessRepository);
+        verify(eventGroupAccessRepository).findByEvent(event);
+        verify(eventMusicianAccessRepository).findByEvent(event);
+        verify(eventGroupAccessRepository, never()).save(any());
+        verify(eventMusicianAccessRepository, never()).save(any());
     }
 }

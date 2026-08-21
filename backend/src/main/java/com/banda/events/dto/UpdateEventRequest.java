@@ -1,21 +1,33 @@
 package com.banda.events.dto;
 
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.PositiveOrZero;
 
 import java.time.Instant;
+import java.util.List;
 
 /**
- * Section 7 edit request: core details only. Access scope (group/musician grants) is set once
- * at creation, mirroring {@code SheetMusic}'s own "no re-scoping endpoint in this PR" scope —
- * a follow-up PR can add scope editing if a real need arises.
+ * Complete replacement contract for event metadata and scope. Every scope field and the
+ * optimistic-lock version are required so omission can never mean either "keep" or "clear".
  */
 public record UpdateEventRequest(
         @NotBlank String title,
         String description,
         String location,
         @NotNull Instant startsAt,
-        boolean isPublic,
-        boolean allScope
+        @NotNull Boolean isPublic,
+        @NotNull Boolean allScope,
+        @NotNull List<@NotNull @Positive Long> groupIds,
+        @NotNull List<@NotNull @Positive Long> musicianIds,
+        @NotNull @PositiveOrZero Long version
 ) {
+
+    @AssertTrue(message = "allScope cannot be combined with group or musician targets")
+    public boolean isScopeValid() {
+        return !Boolean.TRUE.equals(allScope) || (groupIds != null && groupIds.isEmpty()
+                && musicianIds != null && musicianIds.isEmpty());
+    }
 }
