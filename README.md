@@ -33,18 +33,25 @@ PostgreSQL listens on `localhost:5432`. Mailpit accepts SMTP on `localhost:1025`
 The backend fails fast when JWT and mail settings are missing. Plain HTTP development also requires a non-secure auth cookie.
 
 ```bash
-mkdir -p /tmp/music-band-app-files
 export JWT_SECRET="$(openssl rand -base64 32)"
 export MAIL_HOST=localhost
 export MAIL_PORT=1025
 export MAIL_FROM=no-reply@banda.local
 export FRONTEND_BASE_URL=http://localhost:4200
 export APP_SECURITY_COOKIE_SECURE=false
-export APP_FILE_STORAGE_BASE_DIR=/tmp/music-band-app-files
 mvn -f backend/pom.xml spring-boot:run
 ```
 
 The API starts at <http://localhost:8080>. Database defaults match `docker-compose.yml`; additional overrides are documented in `backend/src/main/resources/application.yml`.
+
+Photographs and sheet music are stored by default in the stable user directory
+`${user.home}/.music-band-app/files` (normally `~/.music-band-app/files`). The backend creates
+it on startup, so local development does not require `APP_FILE_STORAGE_BASE_DIR`. To use a
+different writable directory, set the override before starting the backend:
+
+```bash
+export APP_FILE_STORAGE_BASE_DIR=/absolute/path/to/music-band-app-files
+```
 
 `FRONTEND_BASE_URL` is required because password-reset emails derive their
 `/restablecer?token=...` link from that installation-specific origin. Production values must

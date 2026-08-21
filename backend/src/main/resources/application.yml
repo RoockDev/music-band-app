@@ -86,10 +86,9 @@ app:
     # for plain-HTTP local dev without TLS (see README) — never in a real deployment.
     cookie-secure: ${APP_SECURITY_COOKIE_SECURE:true}
   file-storage:
-    # Design decision #3: local disk on a persistent volume (decision #4), deliberately
-    # outside src/main/resources/static or any other classpath location Spring Boot
-    # auto-serves — never static-served, per Section 5's explicit requirement.
-    base-dir: ${APP_FILE_STORAGE_BASE_DIR:/data/files}
+    # Durable local storage for personal development, deliberately outside the application
+    # classpath and static resources. Deployments can override it with an external directory.
+    base-dir: "${APP_FILE_STORAGE_BASE_DIR:${user.home}/.music-band-app/files}"
   mail:
     # REQUIRED, no default -- unlike spring.mail.host/port above, this value isn't a secret,
     # but the SAME silent-blackhole risk applies: a prod deployment that forgets to set it

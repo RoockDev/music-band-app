@@ -12,11 +12,9 @@ import java.util.UUID;
 
 /**
  * Design decision #3's chosen {@link FileStorage} implementation: plain local disk under
- * {@code app.file-storage.base-dir} (defaults to {@code /data/files} — a persistent-volume
- * mount per decision #4, deliberately outside {@code src/main/resources/static} or any other
- * classpath location Spring Boot auto-serves, and with no {@code WebMvcConfigurer} resource
- * mapping registered anywhere in this codebase pointing at it — the spec's "never
- * static-served" requirement for Section 5 sheet music).
+ * {@code app.file-storage.base-dir}. The configured directory is deliberately outside
+ * {@code src/main/resources/static} or any other classpath location Spring Boot auto-serves,
+ * and no {@code WebMvcConfigurer} resource mapping points at it.
  *
  * <p>Every stored file is named by a fresh random UUID, never the caller-supplied original
  * filename — this is the "opaque generated key" the design doc requires, closing off
@@ -30,9 +28,31 @@ public class LocalFileStorage implements FileStorage {
 
     private final Path baseDir;
 
-    public LocalFileStorage(@Value("${app.file-storage.base-dir:/data/files}") String baseDir) throws IOException {
+    public LocalFileStorage(@Value("${app.file-storage.base-dir}") String baseDir) {
         this.baseDir = Path.of(baseDir).toAbsolutePath().normalize();
-        Files.createDirectories(this.baseDir);
+        initializeBaseDirectory();
+    }
+
+    private void initializeBaseDirectory() {
+        if (Files.exists(baseDir) && !Files.isDirectory(baseDir)) {
+            throw initializationFailure("exists but is not a directory", null);
+        }
+
+        try {
+            Files.createDirectories(baseDir);
+        } catch (IOException | SecurityException exception) {
+            throw initializationFailure("could not be created", exception);
+        }
+
+        if (!Files.isWritable(baseDir)) {
+            throw initializationFailure("is not writable", null);
+        }
+    }
+
+    private IllegalStateException initializationFailure(String reason, Exception cause) {
+        String message = "Local file storage directory '" + baseDir + "' " + reason
+                + ". Create a writable directory or set APP_FILE_STORAGE_BASE_DIR to one.";
+        return cause == null ? new IllegalStateException(message) : new IllegalStateException(message, cause);
     }
 
     @Override
