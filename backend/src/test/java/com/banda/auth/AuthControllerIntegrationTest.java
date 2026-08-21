@@ -36,6 +36,7 @@ import java.util.stream.Collectors;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -121,6 +122,37 @@ class AuthControllerIntegrationTest extends IntegrationTestBase {
         // MockMvc/TestRestTemplate run over plain HTTP.
         assertThat(accessToken.getSecure()).isFalse();
         assertThat(result.getResponse().getContentAsString()).contains("login@example.com");
+    }
+
+    @Test
+    void currentUserReturnsIdentityFromTheAuthenticatedPrincipal() throws Exception {
+        UserAccount user = new UserAccount("session@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE, FIXED_NOW);
+        user.setPasswordHash(passwordEncoder.encode("SessionPass1!"));
+        userAccountRepository.saveAndFlush(user);
+
+        Cookie csrf = fetchCsrfCookie();
+        MvcResult loginResult = mockMvc.perform(post("/api/auth/login")
+                        .cookie(csrf)
+                        .header("X-XSRF-TOKEN", csrf.getValue())
+                        .contentType("application/json")
+                        .content("{\"email\":\"session@example.com\",\"password\":\"SessionPass1!\"}"))
+                .andExpect(status().isOk())
+                .andReturn();
+        Cookie accessToken = loginResult.getResponse().getCookie(SecurityConstants.ACCESS_TOKEN_COOKIE);
+
+        mockMvc.perform(get("/api/auth/me").cookie(accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(user.getId()))
+                .andExpect(jsonPath("$.email").value("session@example.com"))
+                .andExpect(jsonPath("$.role").value("MUSICIAN"))
+                .andExpect(jsonPath("$.passwordHash").doesNotExist())
+                .andExpect(jsonPath("$.tokenVersion").doesNotExist());
+    }
+
+    @Test
+    void currentUserWithoutAnAuthenticatedSessionIsUnauthorized() throws Exception {
+        mockMvc.perform(get("/api/auth/me"))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test

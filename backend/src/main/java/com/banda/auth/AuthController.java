@@ -2,6 +2,7 @@ package com.banda.auth;
 
 import com.banda.auth.dto.ActivateAccountRequest;
 import com.banda.auth.dto.CompletePasswordResetRequest;
+import com.banda.auth.dto.CurrentUserResponse;
 import com.banda.auth.dto.LoginRequest;
 import com.banda.auth.dto.LoginResponse;
 import com.banda.security.SecurityConstants;
@@ -50,6 +51,11 @@ public class AuthController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void csrf() {
         // No-op body; the CsrfCookieFilter does the actual work for this request.
+    }
+
+    @GetMapping("/me")
+    public CurrentUserResponse currentUser(@AuthenticationPrincipal UserAccount user) {
+        return CurrentUserResponse.from(user);
     }
 
     @PostMapping("/activate")
