@@ -119,4 +119,16 @@ public class CourseAnnouncement {
     public Long getVersion() {
         return version;
     }
+
+    void update(String title, String description, LocalDate startDate, LocalDate endDate,
+                BigDecimal price, String instrument, int minimumAge, Instant now) {
+        this.title = title;
+        this.description = description;
+        this.startDate = startDate;
+        this.endDate = endDate;
+        this.price = price;
+        this.instrument = instrument;
+        this.minimumAge = minimumAge;
+        this.updatedAt = now;
+    }
 }

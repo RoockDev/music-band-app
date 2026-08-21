@@ -86,4 +86,10 @@ public class NewsPost {
     public Long getVersion() {
         return version;
     }
+
+    void update(String title, String body, Instant now) {
+        this.title = title;
+        this.body = body;
+        this.updatedAt = now;
+    }
 }

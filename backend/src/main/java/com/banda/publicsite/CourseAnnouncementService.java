@@ -2,6 +2,7 @@ package com.banda.publicsite;
 
 import com.banda.audit.AuditService;
 import com.banda.publicsite.dto.CreateCourseAnnouncementRequest;
+import com.banda.publicsite.dto.UpdateCourseAnnouncementRequest;
 import com.banda.security.Permission;
 import com.banda.security.PermissionService;
 import com.banda.users.UserAccount;
@@ -9,9 +10,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.List;
+import java.util.Objects;
 
 /**
  * Section 8 (Public Site Content) "Structured course" scenario admin use case: gated by
@@ -57,5 +61,78 @@ public class CourseAnnouncementService {
         log.info("Course announcement created: {}", saved.getId());
 
         return saved;
+    }
+
+    @Transactional(readOnly = true)
+    public List<CourseAnnouncement> list(UserAccount actor) {
+        permissionService.requirePermission(actor, Permission.MANAGE_CONTENT);
+        return courseAnnouncementRepository.findAllByOrderByStartDateAsc();
+    }
+
+    public CourseAnnouncement update(UserAccount actor, Long id, UpdateCourseAnnouncementRequest request) {
+        permissionService.requirePermission(actor, Permission.MANAGE_CONTENT);
+        CourseAnnouncement course = requireCourse(id);
+        requireVersion(course.getVersion(), request.version());
+        if (sameState(course, request)) {
+            return course;
+        }
+
+        String before = course.getTitle() + "@" + course.getStartDate();
+        course.update(request.title(), request.description(), request.startDate(), request.endDate(), request.price(),
+                request.instrument(), request.minimumAge(), clock.instant());
+        saveWithOptimisticLockHandling(course);
+        String after = request.title() + "@" + request.startDate();
+        auditService.record(actor.getId(), "COURSE_ANNOUNCEMENT_UPDATED", "CourseAnnouncement", id,
+                truncate("before=" + before + ";after=" + after, 255));
+        log.info("Course announcement updated: {}", id);
+        return course;
+    }
+
+    public void delete(UserAccount actor, Long id, Long version) {
+        permissionService.requirePermission(actor, Permission.MANAGE_CONTENT);
+        CourseAnnouncement course = requireCourse(id);
+        requireVersion(course.getVersion(), version);
+        try {
+            courseAnnouncementRepository.delete(course);
+            courseAnnouncementRepository.flush();
+        } catch (ObjectOptimisticLockingFailureException e) {
+            throw new ConcurrentContentModificationException();
+        }
+        auditService.record(actor.getId(), "COURSE_ANNOUNCEMENT_DELETED", "CourseAnnouncement", id,
+                "title=" + truncate(course.getTitle(), 220));
+        log.info("Course announcement deleted: {}", id);
+    }
+
+    private CourseAnnouncement requireCourse(Long id) {
+        return courseAnnouncementRepository.findById(id)
+                .orElseThrow(() -> new ContentNotFoundException("Course announcement", id));
+    }
+
+    private boolean sameState(CourseAnnouncement course, UpdateCourseAnnouncementRequest request) {
+        return Objects.equals(course.getTitle(), request.title())
+                && Objects.equals(course.getDescription(), request.description())
+                && Objects.equals(course.getStartDate(), request.startDate())
+                && Objects.equals(course.getEndDate(), request.endDate())
+                && course.getPrice().compareTo(request.price()) == 0
+                && Objects.equals(course.getInstrument(), request.instrument())
+                && course.getMinimumAge() == request.minimumAge();
+    }
+
+    private void saveWithOptimisticLockHandling(CourseAnnouncement course) {
+        try {
+            courseAnnouncementRepository.saveAndFlush(course);
+        } catch (ObjectOptimisticLockingFailureException e) {
+            throw new ConcurrentContentModificationException();
+        }
+    }
+
+    private void requireVersion(Long current, Long requested) {
+        if (!Objects.equals(current, requested)) {
+            throw new ConcurrentContentModificationException();
+        }
+    }
+
+    private String truncate(String value, int maxLength) {
+        return value.length() <= maxLength ? value : value.substring(0, maxLength);
     }
 }

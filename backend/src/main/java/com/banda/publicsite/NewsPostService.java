@@ -2,6 +2,7 @@ package com.banda.publicsite;
 
 import com.banda.audit.AuditService;
 import com.banda.publicsite.dto.CreateNewsPostRequest;
+import com.banda.publicsite.dto.UpdateNewsPostRequest;
 import com.banda.security.Permission;
 import com.banda.security.PermissionService;
 import com.banda.users.UserAccount;
@@ -9,9 +10,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.List;
+import java.util.Objects;
 
 /**
  * Section 8 (Public Site Content) minimal create use case for {@link NewsPost}: gated by
@@ -57,5 +61,69 @@ public class NewsPostService {
         log.info("News post created: {}", saved.getId());
 
         return saved;
+    }
+
+    @Transactional(readOnly = true)
+    public List<NewsPost> list(UserAccount actor) {
+        permissionService.requirePermission(actor, Permission.MANAGE_CONTENT);
+        return newsPostRepository.findAllByOrderByPublishedAtDesc();
+    }
+
+    public NewsPost update(UserAccount actor, Long id, UpdateNewsPostRequest request) {
+        permissionService.requirePermission(actor, Permission.MANAGE_CONTENT);
+        NewsPost post = requirePost(id);
+        requireVersion(post.getVersion(), request.version());
+        if (Objects.equals(post.getTitle(), request.title()) && Objects.equals(post.getBody(), request.body())) {
+            return post;
+        }
+
+        String beforeTitle = post.getTitle();
+        post.update(request.title(), request.body(), clock.instant());
+        saveWithOptimisticLockHandling(post);
+        auditService.record(actor.getId(), "NEWS_POST_UPDATED", "NewsPost", id,
+                auditDetails(beforeTitle, request.title()));
+        log.info("News post updated: {}", id);
+        return post;
+    }
+
+    public void delete(UserAccount actor, Long id, Long version) {
+        permissionService.requirePermission(actor, Permission.MANAGE_CONTENT);
+        NewsPost post = requirePost(id);
+        requireVersion(post.getVersion(), version);
+        try {
+            newsPostRepository.delete(post);
+            newsPostRepository.flush();
+        } catch (ObjectOptimisticLockingFailureException e) {
+            throw new ConcurrentContentModificationException();
+        }
+        auditService.record(actor.getId(), "NEWS_POST_DELETED", "NewsPost", id,
+                "title=" + truncate(post.getTitle(), 220));
+        log.info("News post deleted: {}", id);
+    }
+
+    private NewsPost requirePost(Long id) {
+        return newsPostRepository.findById(id).orElseThrow(() -> new ContentNotFoundException("News post", id));
+    }
+
+    private void saveWithOptimisticLockHandling(NewsPost post) {
+        try {
+            newsPostRepository.saveAndFlush(post);
+        } catch (ObjectOptimisticLockingFailureException e) {
+            throw new ConcurrentContentModificationException();
+        }
+    }
+
+    private void requireVersion(Long current, Long requested) {
+        if (!Objects.equals(current, requested)) {
+            throw new ConcurrentContentModificationException();
+        }
+    }
+
+    private String auditDetails(String before, String after) {
+        return truncate("beforeTitle=" + before + ";afterTitle=" + after, 255);
+    }
+
+    private String truncate(String value, int maxLength) {
+        return value.length() <= maxLength ? value : value.substring(0, maxLength);
     }
 }

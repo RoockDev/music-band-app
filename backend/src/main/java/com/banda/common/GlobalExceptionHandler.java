@@ -1,6 +1,8 @@
 package com.banda.common;
 
 import com.banda.security.PermissionDeniedException;
+import com.banda.publicsite.ConcurrentContentModificationException;
+import com.banda.publicsite.ContentNotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
@@ -41,5 +43,16 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, String>> handlePermissionDenied(PermissionDeniedException e) {
         log.warn("Permission denied: missing {}", e.getPermission());
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Forbidden"));
+    }
+
+    @ExceptionHandler(ContentNotFoundException.class)
+    public ResponseEntity<Map<String, String>> handleContentNotFound(ContentNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", e.getMessage()));
+    }
+
+    @ExceptionHandler(ConcurrentContentModificationException.class)
+    public ResponseEntity<Map<String, String>> handleConcurrentContentModification(
+            ConcurrentContentModificationException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", e.getMessage()));
     }
 }

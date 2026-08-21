@@ -9,11 +9,12 @@ public record VideoLinkResponse(
         String title,
         String url,
         Instant createdAt,
-        Instant updatedAt
+        Instant updatedAt,
+        Long version
 ) {
 
     public static VideoLinkResponse from(VideoLink videoLink) {
         return new VideoLinkResponse(videoLink.getId(), videoLink.getTitle(), videoLink.getUrl(),
-                videoLink.getCreatedAt(), videoLink.getUpdatedAt());
+                videoLink.getCreatedAt(), videoLink.getUpdatedAt(), videoLink.getVersion());
     }
 }

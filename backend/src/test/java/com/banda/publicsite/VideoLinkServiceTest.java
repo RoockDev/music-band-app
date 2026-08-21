@@ -2,6 +2,7 @@ package com.banda.publicsite;
 
 import com.banda.audit.AuditService;
 import com.banda.publicsite.dto.CreateVideoLinkRequest;
+import com.banda.publicsite.dto.UpdateVideoLinkRequest;
 import com.banda.security.Permission;
 import com.banda.security.PermissionDeniedException;
 import com.banda.security.PermissionService;
@@ -11,6 +12,7 @@ import com.banda.users.UserStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -80,5 +82,21 @@ class VideoLinkServiceTest {
         assertThat(savedCaptor.getValue().getUrl()).isEqualTo("https://youtube.com/watch?v=abc");
         assertThat(created.getUrl()).isEqualTo("https://youtube.com/watch?v=abc");
         verify(auditService).record(eq(actor.getId()), eq("VIDEO_LINK_CREATED"), eq("VideoLink"), any(), anyString());
+    }
+
+    @Test
+    void updateChangesStateWithVersionAndAuditsWithoutRecordingTheUrl() {
+        UserAccount actor = adminActor();
+        VideoLink video = new VideoLink("Old title", "https://example.com/private-token", NOW.minusSeconds(60));
+        ReflectionTestUtils.setField(video, "version", 3L);
+        when(videoLinkRepository.findById(4L)).thenReturn(java.util.Optional.of(video));
+
+        VideoLink updated = videoLinkService.update(actor, 4L,
+                new UpdateVideoLinkRequest("New title", "https://example.com/new", 3L));
+
+        assertThat(updated.getTitle()).isEqualTo("New title");
+        assertThat(updated.getUpdatedAt()).isEqualTo(NOW);
+        verify(auditService).record(eq(actor.getId()), eq("VIDEO_LINK_UPDATED"), eq("VideoLink"), eq(4L),
+                org.mockito.ArgumentMatchers.argThat(details -> !details.contains("private-token")));
     }
 }

@@ -74,4 +74,10 @@ public class VideoLink {
     public Long getVersion() {
         return version;
     }
+
+    void update(String title, String url, Instant now) {
+        this.title = title;
+        this.url = url;
+        this.updatedAt = now;
+    }
 }

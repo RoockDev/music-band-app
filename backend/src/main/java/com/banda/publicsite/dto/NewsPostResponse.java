@@ -10,11 +10,12 @@ public record NewsPostResponse(
         String body,
         Instant publishedAt,
         Instant createdAt,
-        Instant updatedAt
+        Instant updatedAt,
+        Long version
 ) {
 
     public static NewsPostResponse from(NewsPost newsPost) {
         return new NewsPostResponse(newsPost.getId(), newsPost.getTitle(), newsPost.getBody(),
-                newsPost.getPublishedAt(), newsPost.getCreatedAt(), newsPost.getUpdatedAt());
+                newsPost.getPublishedAt(), newsPost.getCreatedAt(), newsPost.getUpdatedAt(), newsPost.getVersion());
     }
 }

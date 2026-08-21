@@ -16,12 +16,13 @@ public record CourseAnnouncementResponse(
         String instrument,
         int minimumAge,
         Instant createdAt,
-        Instant updatedAt
+        Instant updatedAt,
+        Long version
 ) {
 
     public static CourseAnnouncementResponse from(CourseAnnouncement course) {
         return new CourseAnnouncementResponse(course.getId(), course.getTitle(), course.getDescription(),
                 course.getStartDate(), course.getEndDate(), course.getPrice(), course.getInstrument(),
-                course.getMinimumAge(), course.getCreatedAt(), course.getUpdatedAt());
+                course.getMinimumAge(), course.getCreatedAt(), course.getUpdatedAt(), course.getVersion());
     }
 }

@@ -2,6 +2,7 @@ package com.banda.publicsite;
 
 import com.banda.audit.AuditService;
 import com.banda.publicsite.dto.CreateCourseAnnouncementRequest;
+import com.banda.publicsite.dto.UpdateCourseAnnouncementRequest;
 import com.banda.security.Permission;
 import com.banda.security.PermissionDeniedException;
 import com.banda.security.PermissionService;
@@ -11,6 +12,7 @@ import com.banda.users.UserStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -107,5 +109,26 @@ class CourseAnnouncementServiceTest {
         CourseAnnouncement created = courseAnnouncementService.create(actor, request);
 
         assertThat(created.getEndDate()).isNull();
+    }
+
+    @Test
+    void updatePersistsAllStructuredFieldsWithOptimisticVersion() {
+        UserAccount actor = adminActor();
+        CourseAnnouncement course = new CourseAnnouncement("Old", null, LocalDate.of(2026, 9, 1), null,
+                BigDecimal.ZERO, "Voice", 0, NOW.minusSeconds(60));
+        ReflectionTestUtils.setField(course, "version", 1L);
+        when(courseAnnouncementRepository.findById(5L)).thenReturn(java.util.Optional.of(course));
+        UpdateCourseAnnouncementRequest request = new UpdateCourseAnnouncementRequest("Choir", "Weekly",
+                LocalDate.of(2026, 10, 1), LocalDate.of(2027, 1, 1), new BigDecimal("50.00"), "Voice", 12, 1L);
+
+        CourseAnnouncement updated = courseAnnouncementService.update(actor, 5L, request);
+
+        assertThat(updated.getTitle()).isEqualTo("Choir");
+        assertThat(updated.getEndDate()).isEqualTo(LocalDate.of(2027, 1, 1));
+        assertThat(updated.getPrice()).isEqualByComparingTo("50.00");
+        assertThat(updated.getMinimumAge()).isEqualTo(12);
+        verify(courseAnnouncementRepository).saveAndFlush(course);
+        verify(auditService).record(eq(actor.getId()), eq("COURSE_ANNOUNCEMENT_UPDATED"),
+                eq("CourseAnnouncement"), eq(5L), anyString());
     }
 }

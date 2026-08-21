@@ -2,6 +2,7 @@ package com.banda.publicsite;
 
 import com.banda.audit.AuditService;
 import com.banda.publicsite.dto.CreateNewsPostRequest;
+import com.banda.publicsite.dto.UpdateNewsPostRequest;
 import com.banda.security.Permission;
 import com.banda.security.PermissionDeniedException;
 import com.banda.security.PermissionService;
@@ -11,6 +12,7 @@ import com.banda.users.UserStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -25,6 +27,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
 /**
@@ -84,5 +87,49 @@ class NewsPostServiceTest {
         assertThat(savedCaptor.getValue().getPublishedAt()).isEqualTo(NOW);
         assertThat(created.getTitle()).isEqualTo("Spring Concert Recap");
         verify(auditService).record(eq(actor.getId()), eq("NEWS_POST_CREATED"), eq("NewsPost"), any(), anyString());
+    }
+
+    @Test
+    void updateRejectsAStaleVersionWithoutMutationOrAudit() {
+        UserAccount actor = adminActor();
+        NewsPost post = new NewsPost("Old", "Body", NOW.minusSeconds(60));
+        ReflectionTestUtils.setField(post, "version", 2L);
+        when(newsPostRepository.findById(7L)).thenReturn(java.util.Optional.of(post));
+
+        assertThatThrownBy(() -> newsPostService.update(actor, 7L,
+                new UpdateNewsPostRequest("New", "Body", 1L)))
+                .isInstanceOf(ConcurrentContentModificationException.class);
+
+        verify(newsPostRepository, never()).saveAndFlush(any());
+        verifyNoInteractions(auditService);
+    }
+
+    @Test
+    void updateNoOpPreservesTimestampAndDoesNotAudit() {
+        UserAccount actor = adminActor();
+        Instant created = NOW.minusSeconds(60);
+        NewsPost post = new NewsPost("Same", "Body", created);
+        ReflectionTestUtils.setField(post, "version", 0L);
+        when(newsPostRepository.findById(7L)).thenReturn(java.util.Optional.of(post));
+
+        NewsPost result = newsPostService.update(actor, 7L, new UpdateNewsPostRequest("Same", "Body", 0L));
+
+        assertThat(result.getUpdatedAt()).isEqualTo(created);
+        verify(newsPostRepository, never()).saveAndFlush(any());
+        verifyNoInteractions(auditService);
+    }
+
+    @Test
+    void deleteRequiresAnExistingVersionedPostAndAuditsTheRemovedState() {
+        UserAccount actor = adminActor();
+        NewsPost post = new NewsPost("Removed", "Body", NOW);
+        ReflectionTestUtils.setField(post, "version", 0L);
+        when(newsPostRepository.findById(7L)).thenReturn(java.util.Optional.of(post));
+
+        newsPostService.delete(actor, 7L, 0L);
+
+        verify(newsPostRepository).delete(post);
+        verify(newsPostRepository).flush();
+        verify(auditService).record(actor.getId(), "NEWS_POST_DELETED", "NewsPost", 7L, "title=Removed");
     }
 }
