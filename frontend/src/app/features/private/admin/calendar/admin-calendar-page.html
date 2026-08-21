@@ -4,7 +4,8 @@
     <h1>Calendario</h1>
   </div>
   <p>
-    Crea eventos internos o públicos, define su alcance inicial y cancélalos sin borrar su historia.
+    Crea eventos internos o públicos, revisa quién tendrá acceso y actualiza su alcance con control
+    de concurrencia.
   </p>
 </header>
 
@@ -35,27 +36,65 @@
       <label
         ><input type="checkbox" formControlName="isPublic" /> Visible en la agenda pública</label
       >
-      <label><input type="checkbox" formControlName="allScope" /> Visible para toda la banda</label>
+      <label
+        ><input type="checkbox" formControlName="allScope" (change)="globalScopeChanged()" />
+        Visible para toda la banda</label
+      >
     </div>
-    @if (editingId() === null) {
+    <fieldset class="scope-fieldset" [disabled]="eventForm.controls.allScope.value">
+      <legend>Destinatarios con acceso interno</legend>
       <div class="scope-grid">
-        <div class="field">
-          <label for="event-groups">IDs de grupos</label
-          ><input id="event-groups" formControlName="groupIds" placeholder="2, 5" />
+        <div>
+          <h3>Grupos</h3>
+          @if (targets().groups.length === 0) {
+            <p class="scope-note">No hay grupos disponibles.</p>
+          } @else {
+            <div class="target-list">
+              @for (target of targets().groups; track target.id) {
+                <label>
+                  <input
+                    type="checkbox"
+                    [checked]="targetSelected('groupIds', target.id)"
+                    (change)="toggleTarget('groupIds', target.id, $any($event.target).checked)"
+                  />
+                  <span
+                    >{{ target.label }} <small>#{{ target.id }}</small></span
+                  >
+                </label>
+              }
+            </div>
+          }
         </div>
-        <div class="field">
-          <label for="event-musicians">IDs de músicos</label
-          ><input id="event-musicians" formControlName="musicianIds" placeholder="7, 9" />
+        <div>
+          <h3>Músicos</h3>
+          @if (targets().musicians.length === 0) {
+            <p class="scope-note">No hay músicos disponibles.</p>
+          } @else {
+            <div class="target-list">
+              @for (target of targets().musicians; track target.id) {
+                <label>
+                  <input
+                    type="checkbox"
+                    [checked]="targetSelected('musicianIds', target.id)"
+                    (change)="toggleTarget('musicianIds', target.id, $any($event.target).checked)"
+                  />
+                  <span
+                    >{{ target.label }} <small>#{{ target.id }}</small></span
+                  >
+                </label>
+              }
+            </div>
+          }
         </div>
       </div>
-      <small
-        >Los alcances por grupo y músico se fijan al crear el evento; el backend no permite
-        editarlos después.</small
-      >
-    } @else {
-      <p class="scope-note">
-        Puedes cambiar la visibilidad general, pero los grupos y músicos asignados al crear el
-        evento se conservan.
+    </fieldset>
+    <div class="scope-impact" role="status">
+      <strong>Impacto antes de guardar</strong>
+      <p>{{ scopeImpact() }}</p>
+    </div>
+    @if (eventForm.hasError('ambiguousScope')) {
+      <p class="form-message error" role="alert">
+        El alcance global no puede combinarse con grupos o músicos concretos.
       </p>
     }
     @if (formError()) {
@@ -98,7 +137,11 @@
         <div>
           <p class="record-meta">
             ID {{ event.id }} · {{ event.isPublic ? 'Público' : 'Interno' }} ·
-            {{ event.allScope ? 'Toda la banda' : 'Alcance limitado' }}
+            {{
+              event.allScope
+                ? 'Toda la banda'
+                : event.groupIds.length + ' grupos · ' + event.musicianIds.length + ' músicos'
+            }}
           </p>
           <h2>{{ event.title }}</h2>
           <p>{{ event.location || 'Lugar por confirmar' }}</p>

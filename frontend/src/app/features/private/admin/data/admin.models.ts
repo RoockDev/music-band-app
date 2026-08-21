@@ -1,3 +1,5 @@
+import { InternalEvent } from '../../data/private-content.models';
+
 export type UserRole = 'ADMIN' | 'MUSICIAN';
 export type UserStatus = 'PENDING' | 'ACTIVE' | 'DEACTIVATED';
 export type AdminPermission =
@@ -83,7 +85,25 @@ export interface EventCreateMutation {
   musicianIds: number[];
 }
 
-export type EventUpdateMutation = Omit<EventCreateMutation, 'groupIds' | 'musicianIds'>;
+export interface EventUpdateMutation extends EventCreateMutation {
+  version: number;
+}
+
+export interface ManagedEvent extends InternalEvent {
+  version: number;
+  groupIds: number[];
+  musicianIds: number[];
+}
+
+export interface EventTarget {
+  id: number;
+  label: string;
+}
+
+export interface EventTargetCatalog {
+  groups: EventTarget[];
+  musicians: EventTarget[];
+}
 
 export interface SheetMusicUpload {
   title: string;

@@ -19,10 +19,12 @@ import {
   CourseMutation,
   CreateUserResult,
   EventCreateMutation,
+  EventTargetCatalog,
   EventUpdateMutation,
   Group,
   GroupMember,
   GroupMutation,
+  ManagedEvent,
   SheetMusicUpload,
   UserAccount,
   UserMutation,
@@ -123,8 +125,12 @@ export class AdminService {
       );
   }
 
-  getManagedEvents(): Observable<InternalEvent[]> {
-    return this.http.get<InternalEvent[]>('/api/events/admin');
+  getManagedEvents(): Observable<ManagedEvent[]> {
+    return this.http.get<ManagedEvent[]>('/api/events/admin');
+  }
+
+  getEventTargets(): Observable<EventTargetCatalog> {
+    return this.http.get<EventTargetCatalog>('/api/events/admin/targets');
   }
 
   createEvent(request: EventCreateMutation): Observable<InternalEvent> {

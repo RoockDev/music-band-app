@@ -36,6 +36,46 @@
   gap: 1rem;
   grid-template-columns: 1fr 1fr;
 }
+.scope-fieldset {
+  border: 1px solid var(--color-line);
+  margin: 0;
+  padding: 1rem;
+}
+.scope-fieldset legend,
+.scope-fieldset h3,
+.scope-impact strong {
+  font-weight: 700;
+}
+.scope-fieldset h3 {
+  font-size: 1rem;
+  margin: 0 0 0.75rem;
+}
+.target-list {
+  display: grid;
+  gap: 0.45rem;
+  max-height: 12rem;
+  overflow: auto;
+}
+.target-list label {
+  align-items: center;
+  display: flex;
+  gap: 0.55rem;
+}
+.target-list small {
+  color: var(--color-muted);
+}
+.scope-fieldset:disabled {
+  opacity: 0.55;
+}
+.scope-impact {
+  background: var(--color-paper);
+  border-left: 0.25rem solid var(--color-accent-strong);
+  padding: 0.85rem 1rem;
+}
+.scope-impact p {
+  color: var(--color-muted);
+  margin: 0.3rem 0 0;
+}
 .checks {
   display: flex;
   flex-wrap: wrap;

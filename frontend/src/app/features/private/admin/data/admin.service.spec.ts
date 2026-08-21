@@ -127,10 +127,12 @@ describe('AdminService', () => {
 
   it('uses separate permission-gated management catalogs for events and sheet music', () => {
     service.getManagedEvents().subscribe();
+    service.getEventTargets().subscribe();
     service.getCollections().subscribe();
     service.getManagedSheetMusic().subscribe();
 
     http.expectOne('/api/events/admin').flush([]);
+    http.expectOne('/api/events/admin/targets').flush({ groups: [], musicians: [] });
     http.expectOne('/api/collections').flush([]);
     http.expectOne('/api/sheet-music/admin').flush([]);
   });
@@ -175,6 +177,14 @@ describe('AdminService', () => {
     expect(createEvent.request.method).toBe('POST');
     expect(createEvent.request.body).toEqual(event);
     createEvent.flush({ id: 2 });
+
+    const update = { ...event, groupIds: [3], musicianIds: [8, 8], version: 6 };
+    service.updateEvent(2, update).subscribe();
+    http.expectOne('/api/auth/csrf').flush('');
+    const updateEvent = http.expectOne('/api/events/2');
+    expect(updateEvent.request.method).toBe('PUT');
+    expect(updateEvent.request.body).toEqual(update);
+    updateEvent.flush({ id: 2, version: 7 });
 
     service.cancelEvent(2).subscribe();
     http.expectOne('/api/auth/csrf').flush('');
