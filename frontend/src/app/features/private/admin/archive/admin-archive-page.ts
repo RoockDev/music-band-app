@@ -39,12 +39,12 @@ export class AdminArchivePage implements OnInit {
   protected readonly editingScore = signal<SheetMusic | null>(null);
   protected readonly selectedFile = signal<File | null>(null);
   protected readonly collectionForm = this.formBuilder.nonNullable.group({
-    name: ['', Validators.required],
-    description: '',
+    name: ['', [Validators.required, Validators.maxLength(255)]],
+    description: ['', Validators.maxLength(255)],
   });
   protected readonly uploadForm = this.formBuilder.nonNullable.group({
-    title: ['', Validators.required],
-    composer: '',
+    title: ['', [Validators.required, Validators.maxLength(255)]],
+    composer: ['', Validators.maxLength(255)],
     collectionId: [0, Validators.min(1)],
     allScope: false,
     groupIds: '',

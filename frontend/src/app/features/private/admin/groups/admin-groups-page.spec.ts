@@ -16,6 +16,15 @@ describe('AdminGroupsPage', () => {
 
   afterEach(() => http.verify());
 
+  it('enforces group column limits before submission', () => {
+    const component = TestBed.createComponent(AdminGroupsPage).componentInstance as any;
+    component.groupForm.controls.name.setValue('g'.repeat(256));
+    component.groupForm.controls.description.setValue('d'.repeat(256));
+
+    expect(component.groupForm.controls.name.hasError('maxlength')).toBe(true);
+    expect(component.groupForm.controls.description.hasError('maxlength')).toBe(true);
+  });
+
   it('sends the loaded version and reloads the current group after a stale edit', () => {
     const fixture = TestBed.createComponent(AdminGroupsPage);
     fixture.detectChanges();

@@ -74,10 +74,10 @@ export class AdminUsersPage implements OnInit {
     },
   ];
   protected readonly userForm = this.formBuilder.nonNullable.group({
-    email: ['', [Validators.required, Validators.email]],
+    email: ['', [Validators.required, Validators.email, Validators.maxLength(255)]],
     role: this.formBuilder.nonNullable.control<UserRole>('MUSICIAN'),
     minor: false,
-    guardianContact: '',
+    guardianContact: ['', Validators.maxLength(255)],
     consentOnFile: false,
   });
 

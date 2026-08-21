@@ -20,8 +20,8 @@ export class LoginPage {
   protected readonly failed = signal(false);
 
   protected readonly form = this.formBuilder.nonNullable.group({
-    email: ['', [Validators.required, Validators.email]],
-    password: ['', Validators.required],
+    email: ['', [Validators.required, Validators.email, Validators.maxLength(255)]],
+    password: ['', [Validators.required, Validators.maxLength(64)]],
   });
 
   protected submit(): void {

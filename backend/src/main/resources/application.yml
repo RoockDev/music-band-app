@@ -58,10 +58,10 @@ spring:
       # a single request exhaust heap. 20MB comfortably covers a real scanned sheet-music PDF
       # (a multi-page scan at a reasonable DPI is typically a few MB; 20MB leaves headroom for
       # a dense/high-resolution scan without being large enough to be a practical DoS vector
-      # for this app's scale). max-request-size matches since a request carries exactly one
-      # file part today.
+      # for this app's scale). The request cap includes multipart boundaries and metadata, so
+      # it needs a bounded 1MB envelope above the maximum file payload.
       max-file-size: 20MB
-      max-request-size: 20MB
+      max-request-size: 21MB
 
 app:
   jwt:

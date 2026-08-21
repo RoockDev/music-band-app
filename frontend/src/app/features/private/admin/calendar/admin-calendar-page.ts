@@ -41,9 +41,9 @@ export class AdminCalendarPage implements OnInit {
   protected readonly actionError = signal<string | null>(null);
   protected readonly eventForm = this.formBuilder.nonNullable.group(
     {
-      title: ['', Validators.required],
-      description: '',
-      location: '',
+      title: ['', [Validators.required, Validators.maxLength(255)]],
+      description: ['', Validators.maxLength(255)],
+      location: ['', Validators.maxLength(255)],
       startsAt: ['', Validators.required],
       isPublic: false,
       allScope: false,

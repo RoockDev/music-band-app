@@ -44,29 +44,29 @@ export class AdminContentPage implements OnInit {
   protected readonly editingAlbum = signal<Album | null>(null);
   protected readonly photoFile = signal<File | null>(null);
   protected readonly newsForm = this.formBuilder.nonNullable.group({
-    title: ['', Validators.required],
-    body: ['', Validators.required],
+    title: ['', [Validators.required, Validators.maxLength(255)]],
+    body: ['', [Validators.required, Validators.maxLength(10000)]],
   });
   protected readonly videoForm = this.formBuilder.nonNullable.group({
-    title: ['', Validators.required],
-    url: ['', Validators.required],
+    title: ['', [Validators.required, Validators.maxLength(255)]],
+    url: ['', [Validators.required, Validators.maxLength(255)]],
   });
   protected readonly courseForm = this.formBuilder.nonNullable.group({
-    title: ['', Validators.required],
-    description: '',
+    title: ['', [Validators.required, Validators.maxLength(255)]],
+    description: ['', Validators.maxLength(255)],
     startDate: ['', Validators.required],
     endDate: '',
     price: [0, Validators.min(0)],
-    instrument: ['', Validators.required],
+    instrument: ['', [Validators.required, Validators.maxLength(255)]],
     minimumAge: [0, Validators.min(0)],
   });
   protected readonly albumForm = this.formBuilder.nonNullable.group({
-    name: ['', Validators.required],
-    description: '',
+    name: ['', [Validators.required, Validators.maxLength(255)]],
+    description: ['', Validators.maxLength(255)],
   });
   protected readonly photoForm = this.formBuilder.nonNullable.group({
     albumId: [0, Validators.min(1)],
-    caption: '',
+    caption: ['', Validators.maxLength(255)],
   });
 
   ngOnInit(): void {

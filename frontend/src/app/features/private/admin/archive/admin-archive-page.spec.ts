@@ -20,6 +20,15 @@ describe('AdminArchivePage collection management', () => {
     http.verify();
   });
 
+  it('rejects metadata longer than the backend column limits', () => {
+    const component = TestBed.createComponent(AdminArchivePage).componentInstance as any;
+    component.collectionForm.controls.name.setValue('c'.repeat(256));
+    component.uploadForm.controls.title.setValue('s'.repeat(256));
+
+    expect(component.collectionForm.controls.name.hasError('maxlength')).toBe(true);
+    expect(component.uploadForm.controls.title.hasError('maxlength')).toBe(true);
+  });
+
   it('sends collection version on edit and keeps sheet music untouched', () => {
     const fixture = TestBed.createComponent(AdminArchivePage);
     fixture.detectChanges();

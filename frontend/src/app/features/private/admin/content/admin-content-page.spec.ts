@@ -16,6 +16,17 @@ describe('AdminContentPage', () => {
 
   afterEach(() => http.verify());
 
+  it('enforces backend text limits before submitting content', () => {
+    const component = TestBed.createComponent(AdminContentPage).componentInstance as any;
+    component.newsForm.controls.title.setValue('n'.repeat(256));
+    component.newsForm.controls.body.setValue('b'.repeat(10001));
+    component.videoForm.controls.url.setValue('u'.repeat(256));
+
+    expect(component.newsForm.controls.title.hasError('maxlength')).toBe(true);
+    expect(component.newsForm.controls.body.hasError('maxlength')).toBe(true);
+    expect(component.videoForm.controls.url.hasError('maxlength')).toBe(true);
+  });
+
   it('sends the loaded version when editing a news post', () => {
     const fixture = TestBed.createComponent(AdminContentPage);
     fixture.detectChanges();

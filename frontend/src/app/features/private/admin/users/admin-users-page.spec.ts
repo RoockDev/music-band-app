@@ -20,6 +20,15 @@ describe('AdminUsersPage permissions', () => {
     http.verify();
   });
 
+  it('enforces account column limits before submission', () => {
+    const component = TestBed.createComponent(AdminUsersPage).componentInstance as any;
+    component.userForm.controls.email.setValue(`${'u'.repeat(250)}@x.test`);
+    component.userForm.controls.guardianContact.setValue('g'.repeat(256));
+
+    expect(component.userForm.controls.email.hasError('maxlength')).toBe(true);
+    expect(component.userForm.controls.guardianContact.hasError('maxlength')).toBe(true);
+  });
+
   it('offers permission management only for ADMIN accounts and uses readable labels', () => {
     const fixture = TestBed.createComponent(AdminUsersPage);
     fixture.detectChanges();

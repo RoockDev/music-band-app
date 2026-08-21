@@ -34,8 +34,8 @@ export class AdminGroupsPage implements OnInit {
   protected readonly actionError = signal<string | null>(null);
   protected readonly memberError = signal<string | null>(null);
   protected readonly groupForm = this.formBuilder.nonNullable.group({
-    name: ['', Validators.required],
-    description: '',
+    name: ['', [Validators.required, Validators.maxLength(255)]],
+    description: ['', Validators.maxLength(255)],
   });
   protected readonly memberForm = this.formBuilder.nonNullable.group({
     musicianId: [0, [Validators.required, Validators.min(1)]],

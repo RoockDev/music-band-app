@@ -20,8 +20,8 @@ export class ResetPasswordPage {
   protected readonly missingToken = !this.token;
 
   protected readonly form = this.formBuilder.nonNullable.group({
-    password: ['', [Validators.required, Validators.minLength(8)]],
-    confirmation: ['', Validators.required],
+    password: ['', [Validators.required, Validators.minLength(8), Validators.maxLength(64)]],
+    confirmation: ['', [Validators.required, Validators.maxLength(64)]],
   });
 
   protected submit(): void {

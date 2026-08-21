@@ -7,7 +7,7 @@ import jakarta.validation.constraints.Size;
 
 public record UpdateNewsPostRequest(
         @NotBlank @Size(max = 255) String title,
-        @NotBlank String body,
+        @NotBlank @Size(max = 10000) String body,
         @NotNull @PositiveOrZero Long version
 ) {
 }

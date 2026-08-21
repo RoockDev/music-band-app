@@ -20,6 +20,15 @@ describe('AdminCalendarPage scope editing', () => {
     http.verify();
   });
 
+  it('enforces event metadata limits before submission', () => {
+    const component = TestBed.createComponent(AdminCalendarPage).componentInstance as any;
+    component.eventForm.controls.title.setValue('e'.repeat(256));
+    component.eventForm.controls.location.setValue('l'.repeat(256));
+
+    expect(component.eventForm.controls.title.hasError('maxlength')).toBe(true);
+    expect(component.eventForm.controls.location.hasError('maxlength')).toBe(true);
+  });
+
   it('preloads the real administrative scope and sends its version and deduplicated targets', () => {
     const fixture = TestBed.createComponent(AdminCalendarPage);
     fixture.detectChanges();
