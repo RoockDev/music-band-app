@@ -46,6 +46,11 @@ class FlywaySchemaIntegrationTest {
                 FROM flyway_schema_history
                 WHERE version = '1' AND success
                 """, Integer.class);
+        Integer appliedV2 = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM flyway_schema_history
+                WHERE version = '2' AND success
+                """, Integer.class);
         Integer applicationTables = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*)
                 FROM information_schema.tables
@@ -54,7 +59,16 @@ class FlywaySchemaIntegrationTest {
                 """, Integer.class);
 
         assertThat(appliedV1).isEqualTo(1);
-        assertThat(applicationTables).isEqualTo(19);
+        assertThat(appliedV2).isEqualTo(1);
+        assertThat(applicationTables).isEqualTo(20);
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM information_schema.table_constraints
+                WHERE table_schema = 'public'
+                  AND table_name = 'pending_file_deletion'
+                  AND constraint_name = 'uk_pending_file_deletion_storage_key'
+                  AND constraint_type = 'UNIQUE'
+                """, Integer.class)).isEqualTo(1);
 
         MigrateResult secondMigration = flyway.migrate();
 
