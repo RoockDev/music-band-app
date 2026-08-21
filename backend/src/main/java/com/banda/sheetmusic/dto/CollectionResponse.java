@@ -10,11 +10,12 @@ public record CollectionResponse(
         String name,
         String description,
         Instant createdAt,
-        Instant updatedAt
+        Instant updatedAt,
+        Long version
 ) {
 
     public static CollectionResponse from(Collection collection) {
         return new CollectionResponse(collection.getId(), collection.getName(), collection.getDescription(),
-                collection.getCreatedAt(), collection.getUpdatedAt());
+                collection.getCreatedAt(), collection.getUpdatedAt(), collection.getVersion());
     }
 }

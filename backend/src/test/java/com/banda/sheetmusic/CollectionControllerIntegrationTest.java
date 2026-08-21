@@ -31,6 +31,8 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -62,6 +64,9 @@ class CollectionControllerIntegrationTest extends IntegrationTestBase {
 
     @Autowired
     private AuditLogRepository auditLogRepository;
+
+    @Autowired
+    private SheetMusicRepository sheetMusicRepository;
 
     @Autowired
     private PasswordEncoder passwordEncoder;
@@ -198,6 +203,53 @@ class CollectionControllerIntegrationTest extends IntegrationTestBase {
 
         mockMvc.perform(get("/api/collections").cookie(accessToken))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void updateUsesVersionAndDeleteIsBlockedUntilTheCollectionIsEmpty() throws Exception {
+        UserAccount admin = persistActiveAdmin("admin-collection-lifecycle@example.com", "AdminPass1!");
+        adminPermissionRepository.saveAndFlush(new AdminPermission(admin, Permission.MANAGE_SHEET_MUSIC));
+        Collection collection = collectionRepository.saveAndFlush(new Collection("Original", null, FIXED_NOW));
+        Long originalVersion = collection.getVersion();
+        Cookie csrf = fetchCsrfCookie();
+        Cookie accessToken = loginAndGetAccessTokenCookie(
+                "admin-collection-lifecycle@example.com", "AdminPass1!", csrf);
+
+        MvcResult update = mockMvc.perform(put("/api/collections/" + collection.getId())
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue())
+                        .contentType("application/json")
+                        .content("{\"name\":\"Renamed\",\"description\":\"Updated\",\"version\":"
+                                + originalVersion + "}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("Renamed"))
+                .andReturn();
+        Number updatedVersion = JsonPath.read(update.getResponse().getContentAsString(), "$.version");
+
+        mockMvc.perform(put("/api/collections/" + collection.getId())
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue())
+                        .contentType("application/json")
+                        .content("{\"name\":\"Stale\",\"version\":" + originalVersion + "}"))
+                .andExpect(status().isConflict());
+
+        Collection managed = collectionRepository.findById(collection.getId()).orElseThrow();
+        SheetMusic score = sheetMusicRepository.saveAndFlush(new SheetMusic("Score", null, managed, "key-"
+                + collection.getId(), "score.pdf", "application/pdf", true, FIXED_NOW));
+
+        mockMvc.perform(delete("/api/collections/" + collection.getId())
+                        .queryParam("version", updatedVersion.toString())
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue()))
+                .andExpect(status().isConflict());
+
+        sheetMusicRepository.delete(score);
+        sheetMusicRepository.flush();
+        mockMvc.perform(delete("/api/collections/" + collection.getId())
+                        .queryParam("version", updatedVersion.toString())
+                        .cookie(csrf, accessToken)
+                        .header("X-XSRF-TOKEN", csrf.getValue()))
+                .andExpect(status().isNoContent());
     }
 
     @TestConfiguration
