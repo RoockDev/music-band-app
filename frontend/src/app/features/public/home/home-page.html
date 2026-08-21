@@ -1,0 +1,36 @@
+<section class="hero page-grid">
+  <div class="hero-copy">
+    <p class="eyebrow">Archivo musical contemporáneo</p>
+    <h1>La música deja huella cuando se comparte.</h1>
+    <p class="lead">
+      Un espacio para escuchar la vida de la agrupación, descubrir su agenda y acercarse a la
+      formación musical.
+    </p>
+    <div class="actions">
+      <a class="button" routerLink="/agenda">Consultar la agenda</a>
+      <a class="text-link" routerLink="/contacto">Hablar con nosotros <span aria-hidden="true">→</span></a>
+    </div>
+  </div>
+  <div class="hero-art" aria-hidden="true">
+    <img [src]="brand.images.hero" alt="" />
+    <p>Tempo · comunidad · memoria</p>
+  </div>
+</section>
+
+<section class="manifesto page-grid" aria-labelledby="manifesto-title">
+  <p class="section-index">01 / Ahora</p>
+  <div>
+    <h2 id="manifesto-title">Una banda no es solo lo que interpreta.</h2>
+    <p>
+      También es ensayo, aprendizaje, encuentro y archivo. Esta web reúne ese presente sin
+      convertirlo en un catálogo impersonal.
+    </p>
+  </div>
+</section>
+
+<section class="route-ledger" aria-label="Explorar el archivo">
+  <a routerLink="/noticias"><span>01</span><strong>Noticias</strong><small>Lo que está ocurriendo</small></a>
+  <a routerLink="/galeria"><span>02</span><strong>Galería</strong><small>Memoria visual</small></a>
+  <a routerLink="/videos"><span>03</span><strong>Vídeos</strong><small>Escuchar y observar</small></a>
+  <a routerLink="/cursos"><span>04</span><strong>Cursos</strong><small>Aprender música</small></a>
+</section>

@@ -1,0 +1,151 @@
+:host {
+  display: block;
+  min-height: 100vh;
+}
+
+.site-header {
+  align-items: center;
+  background: color-mix(in srgb, var(--color-paper) 94%, transparent);
+  border-bottom: 1px solid var(--color-line);
+  display: flex;
+  justify-content: space-between;
+  min-height: 5.5rem;
+  padding: 0.85rem clamp(1rem, 4vw, 4.5rem);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.brand {
+  align-items: center;
+  color: var(--color-ink);
+  display: flex;
+  gap: 0.8rem;
+  text-decoration: none;
+}
+
+.brand img {
+  flex: 0 0 auto;
+}
+
+.brand span {
+  display: grid;
+}
+
+.brand strong {
+  font-family: var(--font-display);
+  font-size: clamp(1.25rem, 2vw, 1.7rem);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+
+.brand small {
+  color: var(--color-muted);
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+nav {
+  align-items: center;
+  display: flex;
+  gap: clamp(0.6rem, 1.5vw, 1.4rem);
+}
+
+nav a {
+  color: var(--color-ink);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.035em;
+  padding-block: 0.45rem;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+nav a.active {
+  box-shadow: inset 0 -2px var(--color-accent);
+}
+
+.access-link {
+  border: 1px solid var(--color-ink);
+  padding-inline: 0.8rem;
+}
+
+.menu-toggle {
+  display: none;
+}
+
+main {
+  min-height: 65vh;
+}
+
+.site-footer {
+  background: var(--color-ink);
+  color: var(--color-paper);
+  display: grid;
+  gap: 2rem;
+  grid-template-columns: 2fr 1fr 1fr;
+  padding: 3rem clamp(1rem, 6vw, 6rem);
+}
+
+.site-footer > div {
+  align-content: start;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.site-footer strong {
+  font-family: var(--font-display);
+  font-size: 1.8rem;
+}
+
+.site-footer a {
+  color: inherit;
+  width: fit-content;
+}
+
+.social-links {
+  justify-items: start;
+}
+
+@media (max-width: 900px) {
+  .brand small {
+    display: none;
+  }
+
+  .menu-toggle {
+    align-items: center;
+    background: transparent;
+    border: 1px solid var(--color-ink);
+    color: var(--color-ink);
+    display: flex;
+    font: inherit;
+    gap: 0.4rem;
+    padding: 0.55rem 0.7rem;
+  }
+
+  nav {
+    align-items: stretch;
+    background: var(--color-paper);
+    border-bottom: 1px solid var(--color-line);
+    display: none;
+    flex-direction: column;
+    left: 0;
+    padding: 1rem;
+    position: absolute;
+    right: 0;
+    top: 100%;
+  }
+
+  nav.is-open {
+    display: flex;
+  }
+
+  nav a {
+    padding: 0.75rem;
+  }
+
+  .site-footer {
+    grid-template-columns: 1fr;
+  }
+}

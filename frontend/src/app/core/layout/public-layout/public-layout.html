@@ -1,0 +1,53 @@
+<a class="skip-link" href="#main-content">Saltar al contenido</a>
+
+<header class="site-header">
+  <a class="brand" routerLink="/" (click)="closeMenu()" aria-label="Ir al inicio">
+    <img [src]="brand.logoUrl" alt="" width="52" height="52" />
+    <span>
+      <strong>{{ brand.name }}</strong>
+      <small>{{ brand.tagline }}</small>
+    </span>
+  </a>
+
+  <button
+    class="menu-toggle"
+    type="button"
+    [attr.aria-expanded]="menuOpen()"
+    aria-controls="public-navigation"
+    (click)="menuOpen.update((open) => !open)"
+  >
+    <span aria-hidden="true">☰</span>
+    <span>Menú</span>
+  </button>
+
+  <nav id="public-navigation" aria-label="Navegación principal" [class.is-open]="menuOpen()">
+    <a routerLink="/noticias" routerLinkActive="active" (click)="closeMenu()">Noticias</a>
+    <a routerLink="/agenda" routerLinkActive="active" (click)="closeMenu()">Agenda</a>
+    <a routerLink="/galeria" routerLinkActive="active" (click)="closeMenu()">Galería</a>
+    <a routerLink="/videos" routerLinkActive="active" (click)="closeMenu()">Vídeos</a>
+    <a routerLink="/cursos" routerLinkActive="active" (click)="closeMenu()">Cursos</a>
+    <a routerLink="/contacto" routerLinkActive="active" (click)="closeMenu()">Contacto</a>
+    <a class="access-link" routerLink="/acceso" (click)="closeMenu()">Área privada</a>
+  </nav>
+</header>
+
+<main id="main-content" tabindex="-1">
+  <router-outlet />
+</main>
+
+<footer class="site-footer">
+  <div>
+    <p class="eyebrow">Una instalación, una identidad</p>
+    <strong>{{ brand.name }}</strong>
+    <p>{{ brand.contact.address }}</p>
+  </div>
+  <div>
+    <a [href]="'mailto:' + brand.contact.email">{{ brand.contact.email }}</a>
+    <a [href]="'tel:' + brand.contact.phone">{{ brand.contact.phone }}</a>
+  </div>
+  <div class="social-links">
+    @for (network of brand.social; track network.label) {
+      <a [href]="network.url" target="_blank" rel="noreferrer">{{ network.label }}</a>
+    }
+  </div>
+</footer>

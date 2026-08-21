@@ -1,0 +1,161 @@
+.hero {
+  align-items: stretch;
+  min-height: min(48rem, calc(100vh - 5.5rem));
+  padding-block: clamp(3rem, 8vw, 8rem);
+}
+
+.hero-copy {
+  align-content: center;
+  display: grid;
+  grid-column: 1 / span 7;
+  position: relative;
+  z-index: 2;
+}
+
+h1 {
+  font-size: clamp(3.8rem, 8.5vw, 8.8rem);
+  line-height: 0.84;
+  margin: 1.2rem 0 2rem;
+  max-width: 11ch;
+}
+
+.lead {
+  font-size: clamp(1.05rem, 1.6vw, 1.35rem);
+  line-height: 1.6;
+  max-width: 43rem;
+}
+
+.actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  margin-top: 2rem;
+}
+
+.hero-art {
+  align-content: center;
+  background: var(--color-accent);
+  clip-path: polygon(14% 0, 100% 7%, 94% 94%, 0 100%);
+  display: grid;
+  grid-column: 8 / -1;
+  margin-left: -3rem;
+  min-height: 28rem;
+  overflow: hidden;
+  padding: 4rem;
+}
+
+.hero-art img {
+  filter: contrast(1.2);
+  width: 100%;
+}
+
+.hero-art p {
+  border-top: 1px solid color-mix(in srgb, var(--color-paper) 55%, transparent);
+  color: var(--color-paper);
+  font-size: 0.7rem;
+  letter-spacing: 0.15em;
+  margin: 1rem 0 0;
+  padding-top: 0.7rem;
+  text-transform: uppercase;
+}
+
+.manifesto {
+  border-block: 1px solid var(--color-line);
+  padding-block: clamp(4rem, 8vw, 8rem);
+}
+
+.manifesto .section-index {
+  grid-column: 1 / span 3;
+}
+
+.manifesto div {
+  grid-column: 4 / -2;
+}
+
+.manifesto h2 {
+  font-size: clamp(2.8rem, 5vw, 5.5rem);
+  line-height: 0.98;
+  margin: 0;
+}
+
+.manifesto div p {
+  font-size: 1.2rem;
+  line-height: 1.7;
+  max-width: 50rem;
+}
+
+.route-ledger {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.route-ledger a {
+  color: var(--color-ink);
+  display: grid;
+  min-height: 17rem;
+  padding: 2rem;
+  text-decoration: none;
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+.route-ledger a + a {
+  border-left: 1px solid var(--color-line);
+}
+
+.route-ledger a:hover {
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+
+.route-ledger span,
+.route-ledger small {
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.route-ledger strong {
+  align-self: end;
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 3vw, 3.3rem);
+  font-weight: 500;
+}
+
+@media (max-width: 800px) {
+  .hero-copy,
+  .hero-art,
+  .manifesto .section-index,
+  .manifesto div {
+    grid-column: 1 / -1;
+  }
+
+  .hero-art {
+    margin: 2rem 0 0;
+    min-height: 17rem;
+    padding: 2rem;
+  }
+
+  h1 {
+    font-size: clamp(3.5rem, 17vw, 6rem);
+  }
+
+  .route-ledger {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .route-ledger a {
+    border-bottom: 1px solid var(--color-line);
+    min-height: 12rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .route-ledger {
+    grid-template-columns: 1fr;
+  }
+
+  .route-ledger a + a {
+    border-left: 0;
+  }
+}

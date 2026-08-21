@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 520">
+  <g fill="none" stroke="#f3eddf" stroke-width="2" opacity=".8">
+    <path d="M30 110h580M30 145h580M30 180h580M30 215h580M30 250h580"/>
+    <path d="M30 330h580M30 365h580M30 400h580M30 435h580M30 470h580"/>
+  </g>
+  <g fill="#1d211f">
+    <ellipse cx="130" cy="215" rx="24" ry="17" transform="rotate(-14 130 215)"/><path d="M150 210V65h7v145zM157 65c38 13 55 32 47 57-9-20-24-30-47-33z"/>
+    <ellipse cx="300" cy="180" rx="24" ry="17" transform="rotate(-14 300 180)"/><path d="M320 175V90h7v85z"/>
+    <ellipse cx="410" cy="250" rx="24" ry="17" transform="rotate(-14 410 250)"/><path d="M430 245V100h7v145zM437 100c38 13 55 32 47 57-9-20-24-30-47-33z"/>
+    <ellipse cx="225" cy="435" rx="24" ry="17" transform="rotate(-14 225 435)"/><path d="M245 430V300h7v130z"/>
+    <ellipse cx="505" cy="365" rx="24" ry="17" transform="rotate(-14 505 365)"/><path d="M525 360V290h7v70z"/>
+  </g>
+  <text x="34" y="45" fill="#f3eddf" font-family="Georgia,serif" font-size="20" letter-spacing="5">ARCHIVO / 01</text>
+</svg>
