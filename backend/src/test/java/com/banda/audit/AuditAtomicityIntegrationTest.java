@@ -13,18 +13,13 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Proves the BLOCKER fix end-to-end against a real Postgres transaction: a caller's own
- * business-mutation transaction must commit successfully even when the audit write nested
- * inside it fails, because {@link AuditService#record} isolates itself in its own
- * {@code REQUIRES_NEW} transaction and never rethrows. {@link AuditServiceTest} already
- * proves the propagation behavior and catch/log behavior at the unit level; this class
- * proves it holds with real transactions, real rollback, and a real business mutation —
- * exactly the shape PRs 5-8 will use.
+ * Proves that business state and audit evidence commit or roll back atomically against real
+ * Postgres transactions.
  */
-class AuditIsolationIntegrationTest extends IntegrationTestBase {
+class AuditAtomicityIntegrationTest extends IntegrationTestBase {
 
     @Autowired
     private UserAccountRepository userAccountRepository;
@@ -36,19 +31,34 @@ class AuditIsolationIntegrationTest extends IntegrationTestBase {
     private BusinessMutationWithAuditFailure businessMutationWithAuditFailure;
 
     @Test
-    void businessMutationCommitsEvenWhenTheAuditWriteInsideItsTransactionFails() {
+    void auditFailureRollsBackTheBusinessMutation() {
         UserAccount user = new UserAccount("audit-isolation@example.com", UserRole.MUSICIAN, UserStatus.ACTIVE,
                 Instant.now());
         userAccountRepository.saveAndFlush(user);
 
-        assertThatCode(() -> businessMutationWithAuditFailure.bumpUserTokenVersionAndRecordFailingAudit(user.getId()))
-                .doesNotThrowAnyException();
+        assertThatThrownBy(() ->
+                businessMutationWithAuditFailure.bumpUserTokenVersionAndRecordFailingAudit(user.getId()))
+                .isInstanceOf(RuntimeException.class);
 
-        // The business mutation committed despite the nested audit write failing...
         UserAccount reloaded = userAccountRepository.findById(user.getId()).orElseThrow();
-        assertThat(reloaded.getTokenVersion()).isEqualTo(1L);
+        assertThat(reloaded.getTokenVersion()).isZero();
 
-        // ...and the failed audit write left no row behind (its own sub-transaction rolled back).
+        assertThat(auditLogRepository.findByEntityTypeAndEntityIdOrderByTimestampDescIdDesc(
+                "UserAccount", user.getId())).isEmpty();
+    }
+
+    @Test
+    void callerRollbackAlsoRemovesTheAuditRecord() {
+        UserAccount user = new UserAccount("audit-caller-rollback@example.com", UserRole.MUSICIAN,
+                UserStatus.ACTIVE, Instant.now());
+        userAccountRepository.saveAndFlush(user);
+
+        assertThatThrownBy(() -> businessMutationWithAuditFailure.bumpRecordAndFail(user.getId()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("business failure");
+
+        UserAccount reloaded = userAccountRepository.findById(user.getId()).orElseThrow();
+        assertThat(reloaded.getTokenVersion()).isZero();
         assertThat(auditLogRepository.findByEntityTypeAndEntityIdOrderByTimestampDescIdDesc(
                 "UserAccount", user.getId())).isEmpty();
     }
@@ -79,5 +89,14 @@ class BusinessMutationWithAuditFailure {
         // DataIntegrityViolationException at INSERT time: audit_log.entity_id is NOT NULL,
         // and IDENTITY-strategy inserts execute immediately rather than being batched/deferred.
         auditService.record(userId, "USER_TOKEN_BUMPED", "UserAccount", null);
+    }
+
+    @Transactional
+    public void bumpRecordAndFail(Long userId) {
+        UserAccount user = userAccountRepository.findById(userId).orElseThrow();
+        user.bumpTokenVersion();
+        userAccountRepository.saveAndFlush(user);
+        auditService.record(userId, "USER_TOKEN_BUMPED", "UserAccount", userId);
+        throw new IllegalStateException("business failure");
     }
 }

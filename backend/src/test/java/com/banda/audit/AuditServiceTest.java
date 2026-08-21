@@ -1,14 +1,8 @@
 package com.banda.audit;
 
-import ch.qos.logback.classic.Level;
-import ch.qos.logback.classic.Logger;
-import ch.qos.logback.classic.spi.ILoggingEvent;
-import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.transaction.TransactionDefinition;
-import org.springframework.transaction.support.AbstractPlatformTransactionManager;
-import org.springframework.transaction.support.DefaultTransactionStatus;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -16,7 +10,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -25,25 +19,22 @@ import static org.mockito.Mockito.when;
 /**
  * Pure Mockito unit tests for the write path (record) and the read path delegation
  * (history). {@link AuditLogRepositoryTest} already proves the real JPA-level ordering,
- * and {@link AuditIsolationIntegrationTest} proves the REQUIRES_NEW isolation against a
- * real Postgres transaction end-to-end; this class proves AuditService wires the Clock,
- * repository and transaction propagation correctly, and that a repository failure never
- * escapes {@link AuditService#record}.
+ * and {@link AuditAtomicityIntegrationTest} proves atomic rollback against a real Postgres
+ * transaction end-to-end; this class proves AuditService wires the Clock, repository, and
+ * required transaction boundary correctly.
  */
 class AuditServiceTest {
 
     private static final Instant NOW = Instant.parse("2026-01-01T00:00:00Z");
 
     private AuditLogRepository auditLogRepository;
-    private RecordingTransactionManager transactionManager;
     private AuditService auditService;
 
     @BeforeEach
     void setUp() {
         auditLogRepository = mock(AuditLogRepository.class);
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
-        transactionManager = new RecordingTransactionManager();
-        auditService = new AuditService(auditLogRepository, clock, transactionManager);
+        auditService = new AuditService(auditLogRepository, clock);
     }
 
     @Test
@@ -51,7 +42,7 @@ class AuditServiceTest {
         auditService.record(7L, "USER_CREATED", "UserAccount", 99L, "created by admin");
 
         var captor = org.mockito.ArgumentCaptor.forClass(AuditLog.class);
-        verify(auditLogRepository).save(captor.capture());
+        verify(auditLogRepository).saveAndFlush(captor.capture());
 
         AuditLog saved = captor.getValue();
         assertThat(saved.getActorId()).isEqualTo(7L);
@@ -67,46 +58,29 @@ class AuditServiceTest {
         auditService.record(7L, "USER_DEACTIVATED", "UserAccount", 99L);
 
         var captor = org.mockito.ArgumentCaptor.forClass(AuditLog.class);
-        verify(auditLogRepository).save(captor.capture());
+        verify(auditLogRepository).saveAndFlush(captor.capture());
 
         assertThat(captor.getValue().getDetails()).isNull();
     }
 
     @Test
-    void recordRunsInARequiresNewTransactionIsolatedFromAnyCallerTransaction() {
-        auditService.record(7L, "USER_CREATED", "UserAccount", 99L);
+    void recordDeclaresARequiredTransactionBoundary() throws NoSuchMethodException {
+        Transactional transactional = AuditService.class
+                .getMethod("record", Long.class, String.class, String.class, Long.class, String.class)
+                .getAnnotation(Transactional.class);
 
-        assertThat(transactionManager.lastPropagationBehavior)
-                .isEqualTo(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        assertThat(transactional).isNotNull();
+        assertThat(transactional.propagation()).isEqualTo(org.springframework.transaction.annotation.Propagation.REQUIRED);
     }
 
     @Test
-    void recordDoesNotPropagateWhenTheRepositorySaveThrowsAndLogsTheFailure() {
-        when(auditLogRepository.save(any())).thenThrow(new RuntimeException("db unavailable"));
+    void recordPropagatesRepositoryFailureSoTheBusinessTransactionCannotCommit() {
+        when(auditLogRepository.saveAndFlush(any())).thenThrow(new RuntimeException("db unavailable"));
 
-        Logger logger = (Logger) org.slf4j.LoggerFactory.getLogger(AuditService.class);
-        ListAppender<ILoggingEvent> appender = new ListAppender<>();
-        appender.start();
-        logger.addAppender(appender);
-
-        try {
-            assertThatCode(() -> auditService.record(7L, "USER_CREATED", "UserAccount", 99L, "created by admin"))
-                    .doesNotThrowAnyException();
-
-            // The audit write's own sub-transaction rolled back...
-            assertThat(transactionManager.lastRolledBack).isTrue();
-
-            // ...but the failure is visible at ERROR with enough context to investigate.
-            boolean errorLogged = appender.list.stream()
-                    .anyMatch(event -> event.getLevel() == Level.ERROR
-                            && event.getFormattedMessage().contains("actorId=7")
-                            && event.getFormattedMessage().contains("action=USER_CREATED")
-                            && event.getFormattedMessage().contains("entityType=UserAccount")
-                            && event.getFormattedMessage().contains("entityId=99"));
-            assertThat(errorLogged).isTrue();
-        } finally {
-            logger.detachAppender(appender);
-        }
+        assertThatThrownBy(() ->
+                auditService.record(7L, "USER_CREATED", "UserAccount", 99L, "created by admin"))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage("db unavailable");
     }
 
     @Test
@@ -120,37 +94,4 @@ class AuditServiceTest {
         assertThat(history).containsExactly(entry);
     }
 
-    /**
-     * Minimal fake transaction manager (no real resource/connection) used purely to drive
-     * {@link org.springframework.transaction.support.TransactionTemplate}'s real control
-     * flow — begin/commit/rollback — so these unit tests exercise the actual propagation
-     * behavior and rollback-on-exception semantics AuditService relies on, without needing
-     * a database.
-     */
-    private static class RecordingTransactionManager extends AbstractPlatformTransactionManager {
-
-        private Integer lastPropagationBehavior;
-        private boolean lastRolledBack;
-
-        @Override
-        protected Object doGetTransaction() {
-            return new Object();
-        }
-
-        @Override
-        protected void doBegin(Object transaction, TransactionDefinition definition) {
-            lastPropagationBehavior = definition.getPropagationBehavior();
-            lastRolledBack = false;
-        }
-
-        @Override
-        protected void doCommit(DefaultTransactionStatus status) {
-            // no-op: no real resource to commit
-        }
-
-        @Override
-        protected void doRollback(DefaultTransactionStatus status) {
-            lastRolledBack = true;
-        }
-    }
 }

@@ -38,7 +38,7 @@ import static org.mockito.Mockito.when;
  * established for the audit trail (Sec.11): a broken notification (one admin, or the whole
  * batch) must never fail, or be visible to, the caller, and must never undo the
  * already-persisted submission. See {@link ContactService}'s own Javadoc for why this is a
- * plain try/catch rather than {@code AuditService}'s {@code REQUIRES_NEW} sub-transaction --
+ * plain try/catch rather than {@code AuditService}'s atomic database transaction --
  * sending an email has no participating database resource.
  */
 class ContactServiceTest {

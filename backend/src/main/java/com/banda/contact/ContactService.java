@@ -24,14 +24,13 @@ import java.util.List;
  * unauthenticated WRITE (see {@code ContactController} and {@code SecurityConfig}'s own
  * Javadoc for the matching {@code permitAll()} wiring).
  *
- * <p><b>Notification failure isolation</b> applies the SAME reasoning {@code AuditService}
- * established for the audit trail (Sec.11): a broken notification (one admin's mailbox
- * rejecting the message, or the whole SMTP relay being down) must never fail, or be visible
- * to, the caller, and must never undo the already-persisted submission. Unlike
- * {@code AuditService#record}, notifying an admin has no participating database resource --
- * it is a plain outbound network call through {@link EmailSender} -- so there is no
- * {@code REQUIRES_NEW} database sub-transaction to open here: wrapping a slow network call in
- * one would only hold a JDBC connection open for its duration (or, worse, two connections at
+ * <p><b>Notification failure isolation</b> deliberately differs from {@code AuditService}.
+ * Audit evidence is authoritative and commits atomically with business state; an email is a
+ * best-effort delivery side effect. A broken notification (one admin's mailbox rejecting the
+ * message, or the whole SMTP relay being down) must therefore never undo the already-persisted
+ * submission. Notifying an admin has no participating database resource -- it is a plain
+ * outbound network call through {@link EmailSender} -- so wrapping a slow network call in a
+ * database transaction would only hold a JDBC connection open for its duration (or two at
  * once if this method ever ran inside an ambient transaction that had to be suspended), the
  * exact class of connection-pool pressure this codebase has already had to guard against
  * (Phase 6/PR7's HikariCP pool-exhaustion hardening). The isolation this method needs
