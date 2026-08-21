@@ -114,6 +114,8 @@ public class GroupController {
 
     @ExceptionHandler(ConcurrentGroupModificationException.class)
     public ResponseEntity<Map<String, String>> handleConcurrentModification(ConcurrentGroupModificationException e) {
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", e.getMessage()));
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                "code", "CONCURRENT_MODIFICATION",
+                "error", e.getMessage()));
     }
 }

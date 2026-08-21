@@ -5,7 +5,11 @@ import { finalize } from 'rxjs';
 import { AuthService } from '../../../../core/auth/auth.service';
 import { PageState } from '../../../../shared/page-state/page-state';
 import { AdminPermission, UserAccount, UserMutation, UserRole } from '../data/admin.models';
-import { adminErrorMessage, AdminService } from '../data/admin.service';
+import {
+  adminErrorMessage,
+  AdminService,
+  isConcurrentModification,
+} from '../data/admin.service';
 
 @Component({
   selector: 'app-admin-users-page',
@@ -23,6 +27,7 @@ export class AdminUsersPage implements OnInit {
   protected readonly saving = signal(false);
   protected readonly actionId = signal<number | null>(null);
   protected readonly editingId = signal<number | null>(null);
+  protected readonly editingUser = signal<UserAccount | null>(null);
   protected readonly formError = signal<string | null>(null);
   protected readonly actionError = signal<string | null>(null);
   protected readonly activationLink = signal<string | null>(null);
@@ -94,6 +99,7 @@ export class AdminUsersPage implements OnInit {
 
   protected edit(user: UserAccount): void {
     this.editingId.set(user.id);
+    this.editingUser.set(user);
     this.activationLink.set(null);
     this.formError.set(null);
     this.userForm.setValue({
@@ -107,6 +113,7 @@ export class AdminUsersPage implements OnInit {
 
   protected resetForm(): void {
     this.editingId.set(null);
+    this.editingUser.set(null);
     this.formError.set(null);
     this.userForm.reset({
       email: '',
@@ -138,7 +145,8 @@ export class AdminUsersPage implements OnInit {
       guardianContact: value.minor ? value.guardianContact.trim() : null,
       consentOnFile: value.minor && value.consentOnFile,
     };
-    const editingId = this.editingId();
+    const editingUser = this.editingUser();
+    const editingId = editingUser?.id ?? null;
     this.saving.set(true);
 
     if (editingId === null) {
@@ -161,7 +169,7 @@ export class AdminUsersPage implements OnInit {
     }
 
     this.admin
-      .updateUser(editingId, payload)
+      .updateUser(editingId, { ...payload, version: editingUser!.version })
       .pipe(finalize(() => this.saving.set(false)))
       .subscribe({
         next: (updated) => {
@@ -173,8 +181,34 @@ export class AdminUsersPage implements OnInit {
           }
           this.resetForm();
         },
-        error: (error: unknown) => this.formError.set(adminErrorMessage(error, 'usuarios')),
+        error: (error: unknown) => this.handleUpdateError(error, editingId),
       });
+  }
+
+  private handleUpdateError(error: unknown, userId: number): void {
+    if (!isConcurrentModification(error)) {
+      this.formError.set(adminErrorMessage(error, 'usuarios'));
+      return;
+    }
+
+    this.admin.getUsers().subscribe({
+      next: (users) => {
+        const sorted = [...users].sort((a, b) => a.email.localeCompare(b.email));
+        this.users.set(sorted);
+        const latest = sorted.find((user) => user.id === userId);
+        if (latest) {
+          this.edit(latest);
+          this.formError.set('Otra persona modificó la cuenta. Se han recargado sus datos actuales.');
+        } else {
+          this.resetForm();
+          this.formError.set('La cuenta ya no existe o no está disponible.');
+        }
+      },
+      error: () =>
+        this.formError.set(
+          'Hay un conflicto de edición y no se han podido recargar las cuentas actuales.',
+        ),
+    });
   }
 
   protected deactivate(user: UserAccount): void {

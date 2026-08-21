@@ -3,7 +3,11 @@ import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { finalize } from 'rxjs';
 import { PageState } from '../../../../shared/page-state/page-state';
 import { Group, GroupMember, GroupMutation } from '../data/admin.models';
-import { adminErrorMessage, AdminService } from '../data/admin.service';
+import {
+  adminErrorMessage,
+  AdminService,
+  isConcurrentModification,
+} from '../data/admin.service';
 
 @Component({
   selector: 'app-admin-groups-page',
@@ -25,6 +29,7 @@ export class AdminGroupsPage implements OnInit {
   protected readonly groupActionId = signal<number | null>(null);
   protected readonly memberActionId = signal<number | null>(null);
   protected readonly editingId = signal<number | null>(null);
+  protected readonly editingGroup = signal<Group | null>(null);
   protected readonly formError = signal<string | null>(null);
   protected readonly actionError = signal<string | null>(null);
   protected readonly memberError = signal<string | null>(null);
@@ -54,12 +59,14 @@ export class AdminGroupsPage implements OnInit {
 
   protected edit(group: Group): void {
     this.editingId.set(group.id);
+    this.editingGroup.set(group);
     this.formError.set(null);
     this.groupForm.setValue({ name: group.name, description: group.description ?? '' });
   }
 
   protected resetForm(): void {
     this.editingId.set(null);
+    this.editingGroup.set(null);
     this.formError.set(null);
     this.groupForm.reset({ name: '', description: '' });
   }
@@ -76,7 +83,8 @@ export class AdminGroupsPage implements OnInit {
       name: value.name.trim(),
       description: value.description.trim() || null,
     };
-    const editingId = this.editingId();
+    const editingGroup = this.editingGroup();
+    const editingId = editingGroup?.id ?? null;
     this.saving.set(true);
 
     if (editingId === null) {
@@ -96,7 +104,7 @@ export class AdminGroupsPage implements OnInit {
     }
 
     this.admin
-      .updateGroup(editingId, payload)
+      .updateGroup(editingId, { ...payload, version: editingGroup!.version })
       .pipe(finalize(() => this.saving.set(false)))
       .subscribe({
         next: (updated) => {
@@ -108,8 +116,34 @@ export class AdminGroupsPage implements OnInit {
           }
           this.resetForm();
         },
-        error: (error: unknown) => this.formError.set(adminErrorMessage(error, 'grupos')),
+        error: (error: unknown) => this.handleUpdateError(error, editingId),
       });
+  }
+
+  private handleUpdateError(error: unknown, groupId: number): void {
+    if (!isConcurrentModification(error)) {
+      this.formError.set(adminErrorMessage(error, 'grupos'));
+      return;
+    }
+
+    this.admin.getGroups().subscribe({
+      next: (groups) => {
+        const sorted = [...groups].sort((a, b) => a.name.localeCompare(b.name));
+        this.groups.set(sorted);
+        const latest = sorted.find((group) => group.id === groupId);
+        if (latest) {
+          this.edit(latest);
+          this.formError.set('Otra persona modificó el grupo. Se han recargado sus datos actuales.');
+        } else {
+          this.resetForm();
+          this.formError.set('El grupo ya no existe o no está disponible.');
+        }
+      },
+      error: () =>
+        this.formError.set(
+          'Hay un conflicto de edición y no se han podido recargar los grupos actuales.',
+        ),
+    });
   }
 
   protected remove(group: Group): void {
@@ -131,7 +165,9 @@ export class AdminGroupsPage implements OnInit {
         },
         error: (error: unknown) => {
           if ((error as { status?: number }).status === 409) {
-            this.actionError.set('Retira a todos los músicos del grupo antes de eliminarlo.');
+            this.actionError.set(
+              'El grupo sigue en uso. Retira sus músicos y los accesos de eventos o partituras antes de eliminarlo.',
+            );
           } else {
             this.actionError.set(adminErrorMessage(error, 'grupos'));
           }

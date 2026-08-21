@@ -94,7 +94,34 @@ describe('AdminUsersPage permissions', () => {
     expect(element.textContent).toContain('entra en conflicto con el estado actual');
   });
 
-  function user(id: number, email: string, role: 'ADMIN' | 'MUSICIAN') {
+  it('sends the loaded version and reloads the current account after a stale edit', () => {
+    const fixture = TestBed.createComponent(AdminUsersPage);
+    fixture.detectChanges();
+    const stale = user(5, 'stale@example.com', 'MUSICIAN', 2);
+    http.expectOne('/api/users').flush([stale]);
+
+    const component = fixture.componentInstance as any;
+    component.edit(stale);
+    component.userForm.controls.email.setValue('attempted@example.com');
+    component.submit();
+    http.expectOne('/api/auth/csrf').flush('');
+    const update = http.expectOne('/api/users/5');
+    expect(update.request.body.version).toBe(2);
+    update.flush(
+      { code: 'CONCURRENT_MODIFICATION', error: 'conflict' },
+      { status: 409, statusText: 'Conflict' },
+    );
+
+    const latest = user(5, 'latest@example.com', 'MUSICIAN', 3);
+    http.expectOne('/api/users').flush([latest]);
+    fixture.detectChanges();
+
+    expect(component.userForm.controls.email.value).toBe('latest@example.com');
+    expect(component.editingUser().version).toBe(3);
+    expect(fixture.nativeElement.textContent).toContain('Se han recargado');
+  });
+
+  function user(id: number, email: string, role: 'ADMIN' | 'MUSICIAN', version = 0) {
     return {
       id,
       email,
@@ -105,6 +132,7 @@ describe('AdminUsersPage permissions', () => {
       consentOnFile: false,
       createdAt: '2026-01-01T00:00:00Z',
       updatedAt: '2026-01-01T00:00:00Z',
+      version,
     };
   }
 });

@@ -25,6 +25,7 @@ export interface UserAccount {
   consentOnFile: boolean;
   createdAt: string;
   updatedAt: string;
+  version: number;
 }
 
 export interface UserMutation {
@@ -33,6 +34,10 @@ export interface UserMutation {
   minor: boolean;
   guardianContact: string | null;
   consentOnFile: boolean;
+}
+
+export interface UserUpdateMutation extends UserMutation {
+  version: number;
 }
 
 export interface CreateUserResult {
@@ -46,11 +51,16 @@ export interface Group {
   description: string | null;
   createdAt: string;
   updatedAt: string;
+  version: number;
 }
 
 export interface GroupMutation {
   name: string;
   description: string | null;
+}
+
+export interface GroupUpdateMutation extends GroupMutation {
+  version: number;
 }
 
 export interface GroupMember {

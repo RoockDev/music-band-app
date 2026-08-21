@@ -87,11 +87,13 @@ describe('AdminService', () => {
       minor: false,
       guardianContact: null,
       consentOnFile: false,
+      version: 3,
     };
     service.updateUser(7, user).subscribe();
     http.expectOne('/api/auth/csrf').flush('');
     const updateUser = http.expectOne('/api/users/7');
     expect(updateUser.request.method).toBe('PUT');
+    expect(updateUser.request.body.version).toBe(3);
     updateUser.flush({ id: 7 });
 
     service.deactivateUser(7).subscribe();
@@ -106,10 +108,11 @@ describe('AdminService', () => {
     expect(createGroup.request.method).toBe('POST');
     createGroup.flush({ id: 4 });
 
-    service.updateGroup(4, { name: 'Winds', description: 'Section' }).subscribe();
+    service.updateGroup(4, { name: 'Winds', description: 'Section', version: 2 }).subscribe();
     http.expectOne('/api/auth/csrf').flush('');
     const updateGroup = http.expectOne('/api/groups/4');
     expect(updateGroup.request.method).toBe('PUT');
+    expect(updateGroup.request.body.version).toBe(2);
     updateGroup.flush({ id: 4 });
 
     service.deleteGroup(4).subscribe();

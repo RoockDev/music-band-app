@@ -25,10 +25,12 @@ import {
   Group,
   GroupMember,
   GroupMutation,
+  GroupUpdateMutation,
   ManagedEvent,
   SheetMusicUpload,
   UserAccount,
   UserMutation,
+  UserUpdateMutation,
 } from './admin.models';
 
 @Injectable({ providedIn: 'root' })
@@ -46,7 +48,7 @@ export class AdminService {
       .pipe(switchMap(() => this.http.post<CreateUserResult>('/api/users', request)));
   }
 
-  updateUser(id: number, request: UserMutation): Observable<UserAccount> {
+  updateUser(id: number, request: UserUpdateMutation): Observable<UserAccount> {
     return this.csrf
       .ensureToken()
       .pipe(switchMap(() => this.http.put<UserAccount>(`/api/users/${id}`, request)));
@@ -92,7 +94,7 @@ export class AdminService {
       .pipe(switchMap(() => this.http.post<Group>('/api/groups', request)));
   }
 
-  updateGroup(id: number, request: GroupMutation): Observable<Group> {
+  updateGroup(id: number, request: GroupUpdateMutation): Observable<Group> {
     return this.csrf
       .ensureToken()
       .pipe(switchMap(() => this.http.put<Group>(`/api/groups/${id}`, request)));
@@ -339,4 +341,17 @@ export function adminErrorMessage(error: unknown, area: string): string {
     default:
       return 'No se ha podido completar la operación. Inténtalo de nuevo.';
   }
+}
+
+export function isConcurrentModification(error: unknown): boolean {
+  if (!(error instanceof HttpErrorResponse) || error.status !== 409) {
+    return false;
+  }
+  const body: unknown = error.error;
+  return (
+    typeof body === 'object' &&
+    body !== null &&
+    'code' in body &&
+    body.code === 'CONCURRENT_MODIFICATION'
+  );
 }
