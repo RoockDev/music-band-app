@@ -6,6 +6,14 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.time.Clock;
 
+/**
+ * Bridges transactional metadata deletion and non-transactional file storage safely. The
+ * pending row is committed in the same database transaction that removes the owning metadata;
+ * physical deletion starts only after that commit. A storage failure therefore leaves a
+ * durable, retryable record rather than an untracked orphan. This is not filesystem/database
+ * atomicity: there can be a bounded interval where deleted content still occupies disk, but it
+ * is no longer addressable and remains explicitly tracked until cleanup succeeds.
+ */
 @Service
 public class FileDeletionQueue {
 

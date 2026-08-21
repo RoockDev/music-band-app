@@ -9,6 +9,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 
+/**
+ * Executes durable file-deletion work immediately after commit and retries failures on a
+ * schedule. {@link FileStorage#delete(String)} is idempotent, so a database commit failure after
+ * physical deletion is safe: the next retry observes an absent file and removes the queue row.
+ */
 @Service
 public class PendingFileDeletionProcessor {
 
