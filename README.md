@@ -1,6 +1,31 @@
 # Village Band & Music School App
 
-A full-stack web application for a music band and its associated school. It provides an editorial public website, role-based authentication, a musician workspace for events and sheet music, and an administration area for users, groups, calendars, content, files, and audit history.
+A Java-first portfolio application for managing a music band and its associated school, with a Spring Boot REST API and an implemented Angular web interface. Musicians access their events and sheet music; administrators manage users, groups, content and permissions.
+
+This is the **generic learning and portfolio version**, not a deployed client system or a claim of production readiness. A future adaptation for a real band or school would be a separate step, with its own branding, data and deployment decisions. The interface currently uses Spanish copy and example branding.
+
+## What is implemented
+
+- **Backend:** users and groups, events, sheet-music collections and files, public news/gallery/videos/courses, contact submissions and audit history.
+- **Access control:** JWT authentication in an HttpOnly cookie, CSRF protection, administrator permissions and per-resource access for musicians.
+- **Data integrity:** PostgreSQL persistence, Flyway migrations, optimistic version checks and transactional business operations.
+- **Frontend:** public pages, account activation/login/password reset, a musician workspace and administration screens connected to the API.
+- **Tests:** backend unit and integration tests, including PostgreSQL Testcontainers, plus Angular unit tests. Commands and prerequisites are below; test source alone is not evidence of a verified deployment.
+
+## Architecture and code tour
+
+The backend is a **single Spring Boot application organized by feature**, with controller, service and repository layers. Services depend on Spring Data repositories and entities use JPA annotations: this is not a framework-independent hexagonal architecture. File storage and email delivery have dedicated interfaces so their implementations can be replaced.
+
+| Start here | What to inspect |
+| --- | --- |
+| [Events](backend/src/main/java/com/banda/events/) | Controllers, transactional services, DTOs and JPA repositories |
+| [Security](backend/src/main/java/com/banda/security/) | Cookie authentication, CSRF and permissions |
+| [Sheet music](backend/src/main/java/com/banda/sheetmusic/) | File lifecycle and resource-scoped access |
+| [Backend tests](backend/src/test/java/com/banda/) | Unit tests and integration scenarios |
+| [Angular routes](frontend/src/app/app.routes.ts) | Lazy-loaded public, musician and admin screens |
+| [Angular features](frontend/src/app/features/) | UI features and API integration |
+
+**Stack:** Java 21, Spring Boot 3.5, Spring Security, Spring Data JPA, PostgreSQL 16, Flyway, Maven, Angular 22, TypeScript and Docker Compose.
 
 ## Repository structure
 
@@ -116,6 +141,10 @@ npm --prefix frontend start
 
 Open <http://localhost:4200>. Angular proxies `/api` requests to the backend, preserving the same-origin cookie flow used by authentication and CSRF protection.
 
+### First administrator and demo data
+
+A fresh database has no seeded users or demo content. There is currently **no supported first-administrator bootstrap command** and no published default credentials. Existing administrators can manage subsequent accounts, but this does not solve first-time provisioning. Starting the services lets you inspect the public interface; it does not by itself provide access to private areas. A safe initial provisioning workflow is still needed for a self-service demo.
+
 ## Verification
 
 ```bash
@@ -131,6 +160,12 @@ mvn -f backend/pom.xml test
 ```
 
 The complete backend suite uses Testcontainers and therefore requires a running Docker daemon.
+
+## Current scope and limitations
+
+- No hosted demo or production deployment is provided here. Hosting, backups and operational monitoring require separate work.
+- Some listings load and filter records in memory, and file retrieval loads full files. These are small-scale choices, not claims of high-volume scalability.
+- Public pages start without database content; private-area exploration needs securely provisioned accounts as noted above.
 
 ## Branding
 
